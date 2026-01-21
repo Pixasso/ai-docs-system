@@ -1,42 +1,32 @@
 @echo off
 REM AI Docs System — Pre-commit Hook (Windows)
-REM Напоминает обновить документацию при изменении кода
-REM НЕ блокирует коммиты — просто дружеское напоминание
+REM Запускает bash-версию хука если доступна
+REM НЕ блокирует коммиты
 
-setlocal enabledelayedexpansion
+setlocal
 
-set "CHANGED_CODE="
-set "CHANGED_DOCS="
+REM Проверяем наличие bash (Git Bash, WSL, etc.)
+where bash >nul 2>&1
+if %errorlevel% equ 0 (
+  bash "%~dp0pre-commit"
+  exit /b %errorlevel%
+)
 
-REM Проверяем изменения в коде
+REM Fallback: показываем простое напоминание на чистом CMD
 for /f "usebackq delims=" %%f in (`git diff --cached --name-only 2^>nul`) do (
-  echo %%f | findstr /r /c:"^src/" /c:"^services/" >nul 2>&1
+  echo %%f | findstr /r /c:"^src/" /c:"^app/" /c:"^lib/" /c:"^services/" >nul 2>&1
   if !errorlevel! equ 0 (
-    set "CHANGED_CODE=!CHANGED_CODE! %%f"
-  )
-  echo %%f | findstr /r /c:"^docs/" >nul 2>&1
-  if !errorlevel! equ 0 (
-    set "CHANGED_DOCS=1"
+    echo.
+    echo ============================================================
+    echo   Напоминание: проверьте, нужно ли обновить документацию
+    echo ============================================================
+    echo   Конфигурация: .ai-docs-system/config.env
+    echo ============================================================
+    echo.
+    goto :done
   )
 )
-
-REM Если код изменился, но документация нет — показываем напоминание
-if defined CHANGED_CODE if not defined CHANGED_DOCS (
-  echo.
-  echo ============================================================
-  echo   Внимание: Вы изменили код, но не обновили документацию
-  echo ============================================================
-  echo.
-  echo Изменённые файлы:
-  for %%f in (!CHANGED_CODE!) do (
-    echo   - %%f
-  )
-  echo.
-  echo Совет: Запустите Cursor Agent и введите "==" для автообновления
-  echo.
-  echo ============================================================
-  echo.
-)
+:done
 
 REM Никогда не блокируем коммит
 exit /b 0

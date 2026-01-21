@@ -216,6 +216,23 @@ if ($Mode -eq "install") {
   Copy-Item -Force (Join-Path $ScriptDir ".ai-docs-system\templates\*") $templatesDir -ErrorAction SilentlyContinue
   Write-Success "Шаблоны скопированы в templates/"
 } else {
+  # При update — обновляем правила и шаблоны (не перезаписываем существующий конфиг)
+  
+  # Но если конфига нет вообще (миграция с v1) — создаём
+  if (-not (Test-Path $configDst)) {
+    Copy-Item -Force $configSrc $configDst
+    
+    # Подставляем владельца из git config
+    $owner = (git -C $Target config user.name 2>$null)
+    if (-not $owner) { $owner = $env:USERNAME }
+    if ($owner) {
+      (Get-Content $configDst -Raw) -replace '@Pixasso', "@$owner" | Set-Content $configDst -NoNewline
+      Write-Success "config.env создан (миграция с v1, owner: @$owner)"
+    } else {
+      Write-Success "config.env создан (миграция с v1)"
+    }
+  }
+  
   Copy-Item -Force (Join-Path $ScriptDir ".ai-docs-system\rules\*") $rulesDir -ErrorAction SilentlyContinue
   Copy-Item -Force (Join-Path $ScriptDir ".ai-docs-system\templates\*") $templatesDir -ErrorAction SilentlyContinue
   Write-Success "Правила и шаблоны обновлены"

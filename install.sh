@@ -288,7 +288,20 @@ if [[ "$MODE" == "install" ]]; then
   cp -f "$SCRIPT_DIR/.ai-docs-system/templates/"*.md "$TARGET/.ai-docs-system/templates/" 2>/dev/null || true
   log_info "Шаблоны скопированы в templates/"
 else
-  # При update — обновляем только правила (не конфиг!)
+  # При update — обновляем правила и шаблоны (не перезаписываем существующий конфиг)
+  
+  # Но если конфига нет вообще (миграция с v1) — создаём
+  if [[ ! -f "$TARGET/.ai-docs-system/config.env" ]]; then
+    cp "$SCRIPT_DIR/.ai-docs-system/config.env" "$TARGET/.ai-docs-system/config.env"
+    owner="$(git -C "$TARGET" config user.name 2>/dev/null || echo "$USER")"
+    if [[ -n "$owner" ]]; then
+      sed -i.bak "s/@Pixasso/@$owner/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || \
+        sed -i '' "s/@Pixasso/@$owner/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || true
+      rm -f "$TARGET/.ai-docs-system/config.env.bak"
+    fi
+    log_info "config.env создан (миграция с v1, owner: @${owner:-unknown})"
+  fi
+  
   cp -f "$SCRIPT_DIR/.ai-docs-system/rules/"*.md "$TARGET/.ai-docs-system/rules/" 2>/dev/null || true
   cp -f "$SCRIPT_DIR/.ai-docs-system/templates/"*.md "$TARGET/.ai-docs-system/templates/" 2>/dev/null || true
   log_info "Правила и шаблоны обновлены"

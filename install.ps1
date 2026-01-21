@@ -196,7 +196,16 @@ $configSrc = Join-Path $ScriptDir ".ai-docs-system\config.env"
 if ($Mode -eq "install") {
   if (-not (Test-Path $configDst)) {
     Copy-Item -Force $configSrc $configDst
-    Write-Success "config.env создан"
+    
+    # Подставляем владельца из git config
+    $owner = (git -C $Target config user.name 2>$null)
+    if (-not $owner) { $owner = $env:USERNAME }
+    if ($owner) {
+      (Get-Content $configDst -Raw) -replace '@Pixasso', "@$owner" | Set-Content $configDst -NoNewline
+      Write-Success "config.env создан (owner: @$owner)"
+    } else {
+      Write-Success "config.env создан"
+    }
   } else {
     Write-Warn "config.env уже существует, пропускаем"
   }

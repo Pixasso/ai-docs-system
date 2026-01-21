@@ -265,7 +265,17 @@ if [[ "$MODE" == "install" ]]; then
   # При install — копируем всё
   if [[ ! -f "$TARGET/.ai-docs-system/config.env" ]]; then
     cp "$SCRIPT_DIR/.ai-docs-system/config.env" "$TARGET/.ai-docs-system/config.env"
-    log_info "config.env создан"
+    
+    # Подставляем владельца из git config
+    owner="$(git -C "$TARGET" config user.name 2>/dev/null || echo "$USER")"
+    if [[ -n "$owner" ]]; then
+      sed -i.bak "s/@Pixasso/@$owner/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || \
+        sed -i '' "s/@Pixasso/@$owner/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || true
+      rm -f "$TARGET/.ai-docs-system/config.env.bak"
+      log_info "config.env создан (owner: @$owner)"
+    else
+      log_info "config.env создан"
+    fi
   else
     log_warn "config.env уже существует, пропускаем"
   fi

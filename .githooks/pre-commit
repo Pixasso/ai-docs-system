@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+#
+# AI Docs System — Pre-commit Hook (универсальный)
+# Напоминает обновить документацию при изменении кода
+# НЕ блокирует коммиты — просто дружеское напоминание
+#
+# Конфигурация: .ai-docs-system/config.env
+#
+
+# Переходим в корень репозитория
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$repo_root" || exit 0
+
+# ─── Загрузка конфигурации ──────────────────────────────────────────────────────
+config=".ai-docs-system/config.env"
+if [[ -f "$config" ]]; then
+  # shellcheck disable=SC1090
+  source "$config"
+fi
+
+# ─── Значения по умолчанию ──────────────────────────────────────────────────────
+CODE_DIRS="${CODE_DIRS:-src,app,apps,packages,services,server,client,api,lib}"
+CODE_EXTS="${CODE_EXTS:-ts,tsx,js,jsx,py,go,rs,java,kt,php,rb}"
+DOC_DIRS="${DOC_DIRS:-docs}"
+DOC_EXTS="${DOC_EXTS:-md,mdx}"
+DOC_FILES="${DOC_FILES:-README.md,CHANGELOG.md,CONTRIBUTING.md}"
+IGNORE_DIRS="${IGNORE_DIRS:-node_modules,vendor,dist,build,.git}"
+
+# ─── Вспомогательные функции ────────────────────────────────────────────────────
+
+# CSV в regex: "a,b,c" → "(a|b|c)"
+csv_to_re() {
+  local s="${1:-}"
+  s="${s//,/|}"
+  echo "(${s})"
+}
+
+# ─── Построение regex паттернов ─────────────────────────────────────────────────
+CODE_DIRS_RE="$(csv_to_re "$CODE_DIRS")"
+CODE_EXTS_RE="$(csv_to_re "$CODE_EXTS")"
+DOC_DIRS_RE="$(csv_to_re "$DOC_DIRS")"
+DOC_EXTS_RE="$(csv_to_re "$DOC_EXTS")"
+DOC_FILES_RE="$(csv_to_re "$DOC_FILES")"
+IGNORE_DIRS_RE="$(csv_to_re "$IGNORE_DIRS")"
+
+# Паттерн для документации: папки docs/ ИЛИ файлы *.md ИЛИ корневые файлы
+DOCS_RE="^${DOC_DIRS_RE}/|^${DOC_FILES_RE}$|\\.${DOC_EXTS_RE}$"
+
+# Паттерн для кода: папки src/ и т.д. ИЛИ файлы с нужными расширениями
+CODE_RE="^${CODE_DIRS_RE}/|\\.${CODE_EXTS_RE}$|(^|/)(Dockerfile|Makefile|docker-compose\\.ya?ml)$"
+
+# Паттерн для игнорирования
+IGNORE_RE="^${IGNORE_DIRS_RE}/|\\.ai-docs-system/"
+
+# ─── Получаем изменённые файлы ──────────────────────────────────────────────────
+changed_files="$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null)"
+[[ -z "$changed_files" ]] && exit 0
+
+# ─── Фильтруем файлы ────────────────────────────────────────────────────────────
+changed_docs="$(printf "%s\n" "$changed_files" | grep -E "$DOCS_RE" 2>/dev/null || true)"
+changed_code="$(printf "%s\n" "$changed_files" \
+  | grep -Ev "$DOCS_RE" \
+  | grep -Ev "$IGNORE_RE" \
+  | grep -E "$CODE_RE" \
+  | head -10 2>/dev/null || true)"
+
+# ─── Показываем напоминание если нужно ──────────────────────────────────────────
+if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "⚠️  Напоминание: изменился код, но документация не обновлена"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Изменённые файлы:"
+  echo "$changed_code" | while read -r f; do
+    echo "  • $f"
+  done
+  echo ""
+  echo "💡 Рекомендуется обновить документацию:"
+  echo "   • Cursor Agent: введите '==' для автообновления"
+  echo "   • Или вручную обновите docs/"
+  echo ""
+  echo "📝 Конфигурация: .ai-docs-system/config.env"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+fi
+
+# Никогда не блокируем коммит
+exit 0

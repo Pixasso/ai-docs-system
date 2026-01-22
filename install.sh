@@ -153,6 +153,76 @@ generate_adapters() {
   done
 }
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Установка git-хуков с поддержкой разных менеджеров
+# ═══════════════════════════════════════════════════════════════════════════════
+setup_hooks() {
+  local target="$1"
+  local config_file="$target/.ai-docs-system/config.env"
+  local state_dir="$target/.ai-docs-system/state"
+  
+  # Получаем режим из конфига
+  local hooks_mode="auto"
+  if [[ -f "$config_file" ]]; then
+    hooks_mode="$(get_config_value "$config_file" "HOOKS_MODE" "$hooks_mode")"
+  fi
+  
+  # Проверяем текущий hooksPath
+  local current_hooks_path="$(git -C "$target" config core.hooksPath 2>/dev/null || echo "")"
+  
+  # Режим off — пропускаем установку хуков
+  if [[ "$hooks_mode" == "off" ]]; then
+    log_warn "HOOKS_MODE=off — хуки не устанавливаются"
+    return 0
+  fi
+  
+  # Определяем режим: managed или integrate
+  local actual_mode="$hooks_mode"
+  if [[ "$hooks_mode" == "auto" ]]; then
+    if [[ -z "$current_hooks_path" || "$current_hooks_path" == ".githooks" ]]; then
+      actual_mode="managed"
+    else
+      actual_mode="integrate"
+    fi
+  fi
+  
+  # Режим managed: полный контроль над хуками
+  if [[ "$actual_mode" == "managed" ]]; then
+    # Сохраняем предыдущий hooksPath (если был)
+    mkdir -p "$state_dir"
+    if [[ -n "$current_hooks_path" && "$current_hooks_path" != ".githooks" ]]; then
+      echo "$current_hooks_path" > "$state_dir/prev-hooksPath"
+    fi
+    
+    # Устанавливаем хуки
+    mkdir -p "$target/.githooks"
+    cp -f "$SCRIPT_DIR/githooks/pre-commit" "$target/.githooks/pre-commit"
+    chmod +x "$target/.githooks/pre-commit"
+    
+    if [[ -f "$SCRIPT_DIR/githooks/pre-commit.cmd" ]]; then
+      cp -f "$SCRIPT_DIR/githooks/pre-commit.cmd" "$target/.githooks/pre-commit.cmd"
+    fi
+    
+    git -C "$target" config core.hooksPath .githooks
+    log_info "Хуки установлены в .githooks/ (managed режим)"
+    
+  # Режим integrate: не трогаем hooksPath, предлагаем интеграцию
+  else
+    mkdir -p "$target/.ai-docs-system/hooks"
+    cp -f "$SCRIPT_DIR/githooks/pre-commit" "$target/.ai-docs-system/hooks/pre-commit"
+    chmod +x "$target/.ai-docs-system/hooks/pre-commit"
+    
+    log_warn "Обнаружен другой менеджер хуков (core.hooksPath = $current_hooks_path)"
+    echo ""
+    echo "Добавьте в ваш pre-commit хук одну строку:"
+    echo ""
+    echo "  .ai-docs-system/hooks/pre-commit || true"
+    echo ""
+    echo "Или смените режим на managed: HOOKS_MODE=managed в config.env"
+    echo ""
+  fi
+}
+
 # ─── Cursor ─────────────────────────────────────────────────────────────────────
 generate_cursor_rules() {
   local target="$1"
@@ -395,76 +465,6 @@ build_instructions "$TARGET"
 # ─── 3. Установка хуков ─────────────────────────────────────────────────────────
 log_step "Установка git-хуков..."
 setup_hooks "$TARGET"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Установка git-хуков с поддержкой разных менеджеров
-# ═══════════════════════════════════════════════════════════════════════════════
-setup_hooks() {
-  local target="$1"
-  local config_file="$target/.ai-docs-system/config.env"
-  local state_dir="$target/.ai-docs-system/state"
-  
-  # Получаем режим из конфига
-  local hooks_mode="auto"
-  if [[ -f "$config_file" ]]; then
-    hooks_mode="$(get_config_value "$config_file" "HOOKS_MODE" "$hooks_mode")"
-  fi
-  
-  # Проверяем текущий hooksPath
-  local current_hooks_path="$(git -C "$target" config core.hooksPath 2>/dev/null || echo "")"
-  
-  # Режим off — пропускаем установку хуков
-  if [[ "$hooks_mode" == "off" ]]; then
-    log_warn "HOOKS_MODE=off — хуки не устанавливаются"
-    return 0
-  fi
-  
-  # Определяем режим: managed или integrate
-  local actual_mode="$hooks_mode"
-  if [[ "$hooks_mode" == "auto" ]]; then
-    if [[ -z "$current_hooks_path" || "$current_hooks_path" == ".githooks" ]]; then
-      actual_mode="managed"
-    else
-      actual_mode="integrate"
-    fi
-  fi
-  
-  # Режим managed: полный контроль над хуками
-  if [[ "$actual_mode" == "managed" ]]; then
-    # Сохраняем предыдущий hooksPath (если был)
-    mkdir -p "$state_dir"
-    if [[ -n "$current_hooks_path" && "$current_hooks_path" != ".githooks" ]]; then
-      echo "$current_hooks_path" > "$state_dir/prev-hooksPath"
-    fi
-    
-    # Устанавливаем хуки
-    mkdir -p "$target/.githooks"
-    cp -f "$SCRIPT_DIR/githooks/pre-commit" "$target/.githooks/pre-commit"
-    chmod +x "$target/.githooks/pre-commit"
-    
-    if [[ -f "$SCRIPT_DIR/githooks/pre-commit.cmd" ]]; then
-      cp -f "$SCRIPT_DIR/githooks/pre-commit.cmd" "$target/.githooks/pre-commit.cmd"
-    fi
-    
-    git -C "$target" config core.hooksPath .githooks
-    log_info "Хуки установлены в .githooks/ (managed режим)"
-    
-  # Режим integrate: не трогаем hooksPath, предлагаем интеграцию
-  else
-    mkdir -p "$target/.ai-docs-system/hooks"
-    cp -f "$SCRIPT_DIR/githooks/pre-commit" "$target/.ai-docs-system/hooks/pre-commit"
-    chmod +x "$target/.ai-docs-system/hooks/pre-commit"
-    
-    log_warn "Обнаружен другой менеджер хуков (core.hooksPath = $current_hooks_path)"
-    echo ""
-    echo "Добавьте в ваш pre-commit хук одну строку:"
-    echo ""
-    echo "  .ai-docs-system/hooks/pre-commit || true"
-    echo ""
-    echo "Или смените режим на managed: HOOKS_MODE=managed в config.env"
-    echo ""
-  fi
-}
 
 # ─── 4. Генерация адаптеров ─────────────────────────────────────────────────────
 log_step "Генерация адаптеров для AI..."

@@ -578,10 +578,28 @@ audit_project() {
     dir=$(echo "$dir" | xargs)
     [[ ! -d "$target/$dir" ]] && continue
     
-    # find с prune
-    local find_cmd="find $target/$dir"
-    [[ -n "$prune_pattern" ]] && find_cmd="$find_cmd \( $prune_pattern \) -prune -o"
-    find_cmd="$find_cmd -type f \( $ext_pattern \) -print"
+    # Строим аргументы find через массивы (без eval для безопасности)
+    local find_args=("$target/$dir")
+    
+    # Добавляем prune
+    if [[ -n "$prune_pattern" ]]; then
+      IFS='|' read -ra prune_arr <<< "$prune_pattern"
+      find_args+=("(")
+      for pdir in "${prune_arr[@]}"; do
+        find_args+=("-name" "$pdir" "-o")
+      done
+      unset 'find_args[-1]'  # Убираем последний "-o"
+      find_args+=(")" "-prune" "-o")
+    fi
+    
+    # Добавляем type и расширения
+    find_args+=("-type" "f" "(")
+    IFS='|' read -ra ext_patterns <<< "$ext_pattern"
+    for epat in "${ext_patterns[@]}"; do
+      find_args+=("-name" "$epat" "-o")
+    done
+    unset 'find_args[-1]'  # Убираем последний "-o"
+    find_args+=(")" "-print")
     
     while read -r f; do
       [[ -z "$f" ]] && continue
@@ -606,7 +624,7 @@ audit_project() {
           fi
         fi
       fi
-    done < <(eval "$find_cmd" 2>/dev/null)
+    done < <(find "${find_args[@]}" 2>/dev/null)
   done
   
   # Показываем топ N (после обработки ВСЕХ DOC_DIRS)
@@ -682,10 +700,28 @@ audit_project() {
   [[ -n "$meta_prune_pattern" ]] && meta_prune_pattern="${meta_prune_pattern:4}"
   
   if [[ -d "$target/docs" ]]; then
-    # find с prune и нужными расширениями
-    local find_cmd="find $target/docs"
-    [[ -n "$meta_prune_pattern" ]] && find_cmd="$find_cmd \( $meta_prune_pattern \) -prune -o"
-    find_cmd="$find_cmd -type f \( $meta_ext_pattern \) -print"
+    # Строим аргументы find через массивы (без eval)
+    local meta_find_args=("$target/docs")
+    
+    # Добавляем prune
+    if [[ -n "$meta_prune_pattern" ]]; then
+      IFS='|' read -ra meta_prune_arr <<< "$meta_prune_pattern"
+      meta_find_args+=("(")
+      for pdir in "${meta_prune_arr[@]}"; do
+        meta_find_args+=("-path" "$target/docs/$pdir" "-o")
+      done
+      unset 'meta_find_args[-1]'
+      meta_find_args+=(")" "-prune" "-o")
+    fi
+    
+    # Добавляем type и расширения
+    meta_find_args+=("-type" "f" "(")
+    IFS='|' read -ra meta_ext_patterns <<< "$meta_ext_pattern"
+    for epat in "${meta_ext_patterns[@]}"; do
+      meta_find_args+=("-name" "$epat" "-o")
+    done
+    unset 'meta_find_args[-1]'
+    meta_find_args+=(")" "-print")
     
     while read -r f; do
       [[ -z "$f" ]] && continue
@@ -700,7 +736,7 @@ audit_project() {
         echo "  ⚠ $rel_path — отсутствует: $issues_found"
         ((meta_count++))
       fi
-    done < <(eval "$find_cmd" 2>/dev/null)
+    done < <(find "${meta_find_args[@]}" 2>/dev/null)
   fi
   
   if [[ $meta_count -eq 0 ]]; then
@@ -774,9 +810,75 @@ fi
 
 ### Файлы
 
-- `githooks/pre-commit` — добавить блок записи
+- `githooks/pre-commit` — изменить чтение файлов + добавить блок записи
 
 ### Реализация
+
+#### 1. Изменить чтение файлов из git (для корректной работы с путями содержащими newline)
+
+В начале скрипта заменить:
+
+```bash
+# БЫЛО:
+changed_files="$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null)"
+[[ -z "$changed_files" ]] && exit 0
+
+# Фильтруем файлы
+changed_docs="$(printf "%s\n" "$changed_files" | grep -E "$DOCS_RE" 2>/dev/null || true)"
+changed_code="$(printf "%s\n" "$changed_files" \
+  | grep -Ev "$DOCS_RE" \
+  | grep -Ev "$IGNORE_RE" \
+  | grep -E "$CODE_RE" \
+  | head -10 2>/dev/null || true)"
+```
+
+На:
+
+```bash
+# СТАЛО (NUL-разделитель для безопасности):
+changed_docs=""
+changed_code=""
+changed_code_arr=()
+
+# Читаем файлы через NUL-разделитель
+while IFS= read -r -d '' file; do
+  # Проверяем на документацию
+  if echo "$file" | grep -Eq "$DOCS_RE"; then
+    changed_docs="yes"
+  # Проверяем на код (исключая игнорируемое)
+  elif echo "$file" | grep -Evq "$IGNORE_RE" && echo "$file" | grep -Eq "$CODE_RE"; then
+    changed_code="yes"
+    changed_code_arr+=("$file")
+    # Ограничиваем 10 файлами для вывода
+    [[ ${#changed_code_arr[@]} -ge 10 ]] && break
+  fi
+done < <(git diff --cached --name-only -z --diff-filter=ACMR 2>/dev/null)
+
+# Если нет изменённых файлов
+[[ -z "$changed_code" && -z "$changed_docs" ]] && exit 0
+```
+
+#### 2. Обновить блок вывода (использовать массив вместо строки)
+
+```bash
+if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "⚠️  Напоминание: изменился код, но документация не обновлена"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Изменённые файлы:"
+  for f in "${changed_code_arr[@]}"; do
+    echo "  • $f"
+  done
+  echo ""
+  echo "💡 Рекомендуется обновить документацию:"
+  echo "   • Cursor Agent: введите '==' для автообновления"
+  echo "   • Или вручную обновите docs/"
+  echo ""
+```
+
+#### 3. Добавить запись в pending updates (использовать массив)
 
 В конце блока "Показываем напоминание" добавить:
 
@@ -814,17 +916,19 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
       
       # Проверяем КАЖДЫЙ путь на проблемные символы ДО объединения
       local has_bad_chars=false
-      while read -r f; do
+      for f in "${changed_code_arr[@]}"; do
         # Проверяем на pipe, TAB, newline в имени файла
-        if [[ "$f" == *$'|'* || "$f" == *$'\t'* ]]; then
+        if [[ "$f" == *$'|'* || "$f" == *$'\t'* || "$f" == *$'\n'* ]]; then
           has_bad_chars=true
           break
         fi
-      done <<< "$changed_code"
+      done
       
       # Собираем файлы через TAB (только если нет проблемных символов)
       local files_tab
-      files_tab=$(echo "$changed_code" | tr '\n' '\t' | sed 's/\t$//')
+      if [[ "$has_bad_chars" == false ]]; then
+        files_tab=$(printf '%s\t' "${changed_code_arr[@]}" | sed 's/\t$//')
+      fi
       
       # Определяем doc_hint по маппингу
       local doc_hint=""
@@ -836,8 +940,7 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
       map_infrastructure="$(get_config_value "$config" "MAP_INFRASTRUCTURE" "deploy,docker")"
       
       # Простая эвристика: первый файл определяет категорию
-      local first_file
-      first_file=$(echo "$changed_code" | head -1)
+      local first_file="${changed_code_arr[0]}"
       
       if echo "$first_file" | grep -qE "$(echo "$map_features" | tr ',' '|')"; then
         doc_hint="docs/features/"
@@ -858,7 +961,7 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
         local queue0_file="${pending_local%.queue}.queue0"
         {
           printf '%s\0%s\0%s\0' "$ts" "$kind" "$ref"
-          echo "$changed_code" | while read -r f; do
+          for f in "${changed_code_arr[@]}"; do
             printf '%s\0' "$f"
           done
           printf '\0%s\0%s\0\0' "$doc_hint" "$note"
@@ -928,8 +1031,11 @@ fi
 - [ ] `audit`: использует `DOC_EXTS` из конфига (не хардкод `*.md`)
 - [ ] `audit`: применяет `-prune` для `IGNORE_DIRS`
 - [ ] `audit`: `meta_count` работает корректно (process substitution, не subshell)
+- [ ] `audit`: `stale_count` не перезатирается при нескольких `DOC_DIRS`
+- [ ] `audit`: использует массивы для `find` (не `eval`) → нет RCE через config
 - [ ] Exit code `audit` = количество проблем (для CI)
 - [ ] `pre-commit` реально пишет в `.ai-docs-system/state/pending-updates.queue`
+- [ ] `pre-commit`: использует `git diff -z` для корректной работы с newline в путях
 - [ ] `pre-commit`: fallback на `.queue0` для проблемных путей (проверка ДО join)
 - [ ] `pre-commit`: поддержка абсолютных путей в `PENDING_UPDATES_LOCAL`
 - [ ] `rules/shortcuts.md` содержит инструкцию по парсингу `.queue0`
@@ -971,6 +1077,14 @@ fi
 8. **`pre-commit`: `.queue0` fallback ломался**
    - Было: `if echo "$files_tab" | grep -qE '\||\t'` — всегда true (TAB это разделитель)
    - Стало: Проверка каждого пути ДО join, `.queue0` с полным NUL-форматом
+
+9. **`audit_project`: RCE через `eval`**
+   - Было: `eval "$find_cmd"` → инъекция через `config.env`
+   - Стало: Массивы аргументов + `find "${find_args[@]}"` → безопасно
+
+10. **`pre-commit`: newline в путях ломал формат**
+   - Было: `git diff --name-only` → строки (newline в имени файла = 2 записи)
+   - Стало: `git diff --name-only -z` + `read -d ''` → NUL-разделитель, работает для любых путей
 
 ---
 

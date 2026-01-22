@@ -127,39 +127,14 @@ merge_config() {
         /^[A-Z_]+/ { comments="" }
       ' "$default_config")
       
-      # ВАЖНО: Вставляем ПЕРЕД блоком "Примеры кастомизации"
-      local insert_marker="# ═══════════════════════════════════════════════════════════════════════════════"
-      local insert_marker_line="# Примеры кастомизации под специфичные проекты"
-      
-      # Ищем строку с маркером примеров
-      if grep -q "^$insert_marker" "$temp_config" && grep -q "^$insert_marker_line" "$temp_config"; then
-        # Вставляем ПЕРЕД маркером
-        local new_content
+      # Собираем новые ключи во временный файл
+      {
         if [[ -n "$comment_block" ]]; then
-          new_content="\\n${comment_block}\\n${key}=${default_value}\\n"
-        else
-          new_content="\\n${key}=${default_value}\\n"
+          echo ""
+          echo "$comment_block"
         fi
-        
-        # Используем awk для вставки перед маркером
-        awk -v marker="$insert_marker" -v new="$new_content" '
-          $0 ~ marker { 
-            found = 1
-          }
-          found && $0 ~ /Примеры кастомизации/ {
-            printf "%s", new
-            found = 0
-          }
-          { print }
-        ' "$temp_config" > "$temp_config.new" && mv "$temp_config.new" "$temp_config"
-      else
-        # Fallback: в конец
-        if [[ -n "$comment_block" ]]; then
-          echo "" >> "$temp_config"
-          echo "$comment_block" >> "$temp_config"
-        fi
-        echo "${key}=${default_value}" >> "$temp_config"
-      fi
+        echo "${key}=${default_value}"
+      } >> "$temp_config.additions"
       
       ((added++))
       log_info "+ $key=${default_value}"
@@ -167,6 +142,32 @@ merge_config() {
       ((skipped++))
     fi
   done
+  
+  # ВАЖНО: Вставляем ВСЕ новые ключи ПЕРЕД блоком "Примеры кастомизации" (один раз)
+  if [[ -f "$temp_config.additions" && -s "$temp_config.additions" ]]; then
+    local insert_marker="# Примеры кастомизации под специфичные проекты"
+    
+    if grep -q "$insert_marker" "$temp_config"; then
+      # Вставляем ПЕРЕД маркером через sed
+      # Создаём escape-версию additions для sed
+      local additions_escaped
+      additions_escaped=$(sed 's/[&/\]/\\&/g' "$temp_config.additions")
+      
+      # Используем awk для надёжной вставки
+      awk -v additions="$(cat "$temp_config.additions")" '
+        /^# Примеры кастомизации/ {
+          print additions
+          print ""
+        }
+        { print }
+      ' "$temp_config" > "$temp_config.new" && mv "$temp_config.new" "$temp_config"
+    else
+      # Fallback: в конец
+      cat "$temp_config.additions" >> "$temp_config"
+    fi
+    
+    rm -f "$temp_config.additions"
+  fi
   
   # Специальная обработка RULES_ENABLED
   local user_rules
@@ -549,85 +550,83 @@ audit_project() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
-  # Ищем все документы в DOC_DIRS с нужными расширениями
-  local doc_files=""
+  # Собираем ВСЕ устаревшие документы из ВСЕХ DOC_DIRS в один файл
+  local stale_tmp
+  stale_tmp=$(mktemp)
+  
   IFS=',' read -ra doc_arr <<< "$doc_dirs"
   IFS=',' read -ra ext_arr <<< "$doc_exts"
   
+  # Строим паттерн для расширений (один раз)
+  local ext_pattern=""
+  for ext in "${ext_arr[@]}"; do
+    ext=$(echo "$ext" | xargs)
+    ext_pattern="$ext_pattern -o -name *.${ext}"
+  done
+  ext_pattern="${ext_pattern:4}"  # Убираем первый " -o "
+  
+  # Строим prune (один раз)
+  local prune_pattern=""
+  IFS=',' read -ra ignore_arr <<< "$ignore_dirs"
+  for idir in "${ignore_arr[@]}"; do
+    idir=$(echo "$idir" | xargs)
+    prune_pattern="$prune_pattern -o -name $idir"
+  done
+  [[ -n "$prune_pattern" ]] && prune_pattern="${prune_pattern:4}"
+  
   for dir in "${doc_arr[@]}"; do
     dir=$(echo "$dir" | xargs)
-    if [[ -d "$target/$dir" ]]; then
-      # Строим паттерн для расширений
-      local ext_pattern=""
-      for ext in "${ext_arr[@]}"; do
-        ext=$(echo "$ext" | xargs)
-        ext_pattern="$ext_pattern -o -name *.${ext}"
-      done
-      ext_pattern="${ext_pattern:4}"  # Убираем первый " -o "
+    [[ ! -d "$target/$dir" ]] && continue
+    
+    # find с prune
+    local find_cmd="find $target/$dir"
+    [[ -n "$prune_pattern" ]] && find_cmd="$find_cmd \( $prune_pattern \) -prune -o"
+    find_cmd="$find_cmd -type f \( $ext_pattern \) -print"
+    
+    while read -r f; do
+      [[ -z "$f" ]] && continue
       
-      # Ищем файлы с prune
-      local prune_pattern=""
-      IFS=',' read -ra ignore_arr <<< "$ignore_dirs"
-      for idir in "${ignore_arr[@]}"; do
-        idir=$(echo "$idir" | xargs)
-        prune_pattern="$prune_pattern -o -path $target/$idir"
-      done
-      prune_pattern="${prune_pattern:4}"
+      # Ищем Last verified
+      local last_verified
+      last_verified=$(grep -E "^Last verified:" "$f" 2>/dev/null | head -1 | cut -d':' -f2- | xargs)
       
-      doc_files=$(find "$target/$dir" \( $prune_pattern \) -prune -o -type f \( $ext_pattern \) -print 2>/dev/null)
-      
-      if [[ -n "$doc_files" ]]; then
-        # Собираем устаревшие в файл
-        local stale_tmp
-        stale_tmp=$(mktemp)
+      if [[ -n "$last_verified" ]]; then
+        # Парсим дату (YYYY-MM-DD)
+        local verified_ts
+        verified_ts=$(date_to_epoch "$last_verified")
         
-        while read -r f; do
-          # Ищем Last verified
-          local last_verified
-          last_verified=$(grep -E "^Last verified:" "$f" 2>/dev/null | head -1 | cut -d':' -f2- | xargs)
+        if [[ $verified_ts -gt 0 ]]; then
+          local now_ts
+          now_ts=$(date +%s)
+          local age_days=$(( (now_ts - verified_ts) / 86400 ))
           
-          if [[ -n "$last_verified" ]]; then
-            # Парсим дату (YYYY-MM-DD)
-            local verified_ts
-            verified_ts=$(date_to_epoch "$last_verified")
-            
-            if [[ $verified_ts -gt 0 ]]; then
-              local now_ts
-              now_ts=$(date +%s)
-              local age_days=$(( (now_ts - verified_ts) / 86400 ))
-              
-              if [[ $age_days -gt $doc_stale_days ]]; then
-                local rel_path="${f#$target/}"
-                echo "$age_days|$rel_path|$last_verified" >> "$stale_tmp"
-              fi
-            fi
+          if [[ $age_days -gt $doc_stale_days ]]; then
+            local rel_path="${f#$target/}"
+            echo "$age_days|$rel_path|$last_verified" >> "$stale_tmp"
           fi
-        done <<< "$doc_files"
-        
-        # Показываем топ N
-        local total_stale
-        total_stale=$(wc -l < "$stale_tmp" | xargs)
-        
-        if [[ $total_stale -gt 0 ]]; then
-          sort -t'|' -k1 -rn "$stale_tmp" | head -n "$doc_stale_max" | while IFS='|' read -r age path date; do
-            echo "  ⚠ $path"
-            echo "     Last verified: $date ($age дней)"
-            echo ""
-          done
-          
-          if [[ $total_stale -gt $doc_stale_max ]]; then
-            local remaining=$((total_stale - doc_stale_max))
-            echo "  (ещё $remaining документов...)"
-            echo ""
-          fi
-          
-          stale_count=$total_stale
         fi
-        
-        rm -f "$stale_tmp"
       fi
-    fi
+    done < <(eval "$find_cmd" 2>/dev/null)
   done
+  
+  # Показываем топ N (после обработки ВСЕХ DOC_DIRS)
+  stale_count=$(wc -l < "$stale_tmp" 2>/dev/null | xargs || echo "0")
+  
+  if [[ $stale_count -gt 0 ]]; then
+    sort -t'|' -k1 -rn "$stale_tmp" | head -n "$doc_stale_max" | while IFS='|' read -r age path date; do
+      echo "  ⚠ $path"
+      echo "     Last verified: $date ($age дней)"
+      echo ""
+    done
+    
+    if [[ $stale_count -gt $doc_stale_max ]]; then
+      local remaining=$((stale_count - doc_stale_max))
+      echo "  (ещё $remaining документов...)"
+      echo ""
+    fi
+  fi
+  
+  rm -f "$stale_tmp"
   
   if [[ $stale_count -eq 0 ]]; then
     echo "  ✓ Все документы актуальны"
@@ -664,8 +663,32 @@ audit_project() {
   echo ""
   
   # Проверяем наличие Owner, Last verified (используем process substitution для счётчика)
+  # Строим паттерн расширений из DOC_EXTS
+  local meta_ext_pattern=""
+  IFS=',' read -ra meta_ext_arr <<< "$doc_exts"
+  for ext in "${meta_ext_arr[@]}"; do
+    ext=$(echo "$ext" | xargs)
+    meta_ext_pattern="$meta_ext_pattern -o -name *.${ext}"
+  done
+  meta_ext_pattern="${meta_ext_pattern:4}"  # Убираем первый " -o "
+  
+  # Строим prune для игнорируемых папок
+  local meta_prune_pattern=""
+  IFS=',' read -ra meta_ignore_arr <<< "$ignore_dirs"
+  for idir in "${meta_ignore_arr[@]}"; do
+    idir=$(echo "$idir" | xargs)
+    meta_prune_pattern="$meta_prune_pattern -o -path $target/docs/$idir"
+  done
+  [[ -n "$meta_prune_pattern" ]] && meta_prune_pattern="${meta_prune_pattern:4}"
+  
   if [[ -d "$target/docs" ]]; then
+    # find с prune и нужными расширениями
+    local find_cmd="find $target/docs"
+    [[ -n "$meta_prune_pattern" ]] && find_cmd="$find_cmd \( $meta_prune_pattern \) -prune -o"
+    find_cmd="$find_cmd -type f \( $meta_ext_pattern \) -print"
+    
     while read -r f; do
+      [[ -z "$f" ]] && continue
       local rel_path="${f#$target/}"
       local issues_found=""
       
@@ -677,7 +700,7 @@ audit_project() {
         echo "  ⚠ $rel_path — отсутствует: $issues_found"
         ((meta_count++))
       fi
-    done < <(find "$target/docs" -type f -name "*.md" 2>/dev/null)
+    done < <(eval "$find_cmd" 2>/dev/null)
   fi
   
   if [[ $meta_count -eq 0 ]]; then
@@ -789,7 +812,17 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
       local kind="code"
       local ref="commit"
       
-      # Собираем файлы через TAB
+      # Проверяем КАЖДЫЙ путь на проблемные символы ДО объединения
+      local has_bad_chars=false
+      while read -r f; do
+        # Проверяем на pipe, TAB, newline в имени файла
+        if [[ "$f" == *$'|'* || "$f" == *$'\t'* ]]; then
+          has_bad_chars=true
+          break
+        fi
+      done <<< "$changed_code"
+      
+      # Собираем файлы через TAB (только если нет проблемных символов)
       local files_tab
       files_tab=$(echo "$changed_code" | tr '\n' '\t' | sed 's/\t$//')
       
@@ -818,16 +851,21 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
       
       local note="pre-commit"
       
-      # Пробуем записать
-      local entry="${ts}|${kind}|${ref}|${files_tab}|${doc_hint}|${note}"
-      
-      # Проверка на проблемные символы (pipe или TAB в путях)
-      if echo "$files_tab" | grep -qE '\||	'; then
-        # Fallback: .queue0 с NUL-разделителем
+      # Запись в очередь
+      if [[ "$has_bad_chars" == true ]]; then
+        # Fallback: .queue0 с NUL-разделителем (все поля + файлы через NUL)
+        # Формат: ts\0kind\0ref\0file1\0file2\0...\0\0doc_hint\0note\0\0 (двойной NUL = конец записи)
         local queue0_file="${pending_local%.queue}.queue0"
-        printf '%s|%s|%s|%s|%s|%s\0' "$ts" "$kind" "$ref" "$files_tab" "$doc_hint" "$note" >> "$queue0_file" 2>/dev/null
+        {
+          printf '%s\0%s\0%s\0' "$ts" "$kind" "$ref"
+          echo "$changed_code" | while read -r f; do
+            printf '%s\0' "$f"
+          done
+          printf '\0%s\0%s\0\0' "$doc_hint" "$note"
+        } >> "$queue0_file" 2>/dev/null
       else
-        # Обычная запись
+        # Обычная запись: timestamp|kind|ref|files_tab|doc_hint|note
+        local entry="${ts}|${kind}|${ref}|${files_tab}|${doc_hint}|${note}"
         echo "$entry" >> "$pending_local" 2>/dev/null
       fi
       
@@ -844,8 +882,20 @@ fi
 
 - Создавать `.ai-docs-system/state/` если не существует
 - Использовать `get_config_value` для чтения переменных
-- Fallback на `.queue0` если в путях есть `|` или TAB
+- Fallback на `.queue0` если в путях есть `|` или TAB (проверять КАЖДЫЙ путь ДО join)
 - Не падать если запись не удалась (pre-commit не должен блокировать)
+- **Абсолютные пути**: если `PENDING_UPDATES_LOCAL` начинается с `/`, использовать как есть; иначе — относительно `$repo_root`
+
+### Также обновить `rules/shortcuts.md`
+
+Добавить инструкцию для AI по парсингу `.queue0`:
+
+```markdown
+**Формат `.queue0` (NUL-separated для проблемных путей):**
+- Поля: `ts\0kind\0ref\0file1\0file2\0...\0\0doc_hint\0note\0\0`
+- Двойной NUL (`\0\0`) = конец записи
+- Парсить: `cat file.queue0 | xargs -0 -n1`
+```
 
 ---
 
@@ -880,7 +930,9 @@ fi
 - [ ] `audit`: `meta_count` работает корректно (process substitution, не subshell)
 - [ ] Exit code `audit` = количество проблем (для CI)
 - [ ] `pre-commit` реально пишет в `.ai-docs-system/state/pending-updates.queue`
-- [ ] `pre-commit`: fallback на `.queue0` для проблемных путей
+- [ ] `pre-commit`: fallback на `.queue0` для проблемных путей (проверка ДО join)
+- [ ] `pre-commit`: поддержка абсолютных путей в `PENDING_UPDATES_LOCAL`
+- [ ] `rules/shortcuts.md` содержит инструкцию по парсингу `.queue0`
 - [ ] PowerShell версия синхронизирована с Bash
 - [ ] Документация обновлена
 
@@ -889,8 +941,8 @@ fi
 ## 📌 Исправленные баги из первоначального плана
 
 1. **`merge_config`: вставка "перед примерами"**
-   - Было: `echo >> "$temp_config"` (в конец)
-   - Стало: Поиск маркера `# Примеры кастомизации` + вставка через `awk`
+   - Было: `echo >> "$temp_config"` (в конец) + `awk -v new="\\n..."` (битые переносы)
+   - Стало: Собираем в `.additions` файл, вставляем один раз через `awk` по якорю
 
 2. **`audit_project`: subshell баг с `meta_count`**
    - Было: `find ... | while read` → счётчик в subshell, теряется
@@ -902,15 +954,23 @@ fi
 
 4. **`audit_project`: хардкод `*.md`**
    - Было: `find ... -name "*.md"`
-   - Стало: Динамическое построение паттерна из `DOC_EXTS`
+   - Стало: Динамическое построение паттерна из `DOC_EXTS` (для всех секций: readme, stale, meta)
 
 5. **`audit_project`: отсутствие оптимизации**
    - Было: `find` без `-prune` → обходит `node_modules/`
    - Стало: Строим prune-паттерн из `IGNORE_DIRS`
 
-6. **`pre-commit`: отсутствие реальной записи**
+6. **`audit_project`: `stale_count` перезатирался**
+   - Было: `stale_count=$total_stale` внутри цикла по `DOC_DIRS` → последний перезатирает
+   - Стало: Один общий `stale_tmp` для всех `DOC_DIRS`, подсчёт после цикла
+
+7. **`pre-commit`: отсутствие реальной записи**
    - Было: Только текст "📝 Запись в pending updates..."
    - Стало: Реальная запись в `.ai-docs-system/state/pending-updates.queue`
+
+8. **`pre-commit`: `.queue0` fallback ломался**
+   - Было: `if echo "$files_tab" | grep -qE '\||\t'` — всегда true (TAB это разделитель)
+   - Стало: Проверка каждого пути ДО join, `.queue0` с полным NUL-форматом
 
 ---
 

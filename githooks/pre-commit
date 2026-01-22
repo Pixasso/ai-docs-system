@@ -11,28 +11,51 @@
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 cd "$repo_root" || exit 0
 
+# ─── Безопасное чтение конфигурации ─────────────────────────────────────────────
+
+# Безопасная функция для чтения значений из config.env (без исполнения кода)
+get_config_value() {
+  local file="$1" key="$2" default="$3"
+  grep -E "^${key}=" "$file" 2>/dev/null | cut -d'=' -f2- | head -1 || echo "$default"
+}
+
 # ─── Загрузка конфигурации ──────────────────────────────────────────────────────
 config=".ai-docs-system/config.env"
-if [[ -f "$config" ]]; then
-  # shellcheck disable=SC1090
-  source "$config"
-fi
 
-# ─── Значения по умолчанию ──────────────────────────────────────────────────────
-CODE_DIRS="${CODE_DIRS:-src,app,apps,packages,services,server,client,api,lib}"
-CODE_EXTS="${CODE_EXTS:-ts,tsx,js,jsx,py,go,rs,java,kt,php,rb}"
-DOC_DIRS="${DOC_DIRS:-docs}"
-DOC_EXTS="${DOC_EXTS:-md,mdx}"
-DOC_FILES="${DOC_FILES:-README.md,CHANGELOG.md,CONTRIBUTING.md}"
-IGNORE_DIRS="${IGNORE_DIRS:-node_modules,vendor,dist,build,.git}"
+# Значения по умолчанию
+CODE_DIRS="src,app,apps,packages,services,server,client,api,lib,cmd,internal,supabase"
+CODE_EXTS="ts,tsx,js,jsx,mjs,cjs,py,go,rs,java,kt,kts,cs,php,rb,swift,c,cpp,h,hpp,sql,graphql,proto"
+DOC_DIRS="docs,doc,documentation"
+DOC_EXTS="md,mdx,rst,adoc"
+DOC_FILES="README.md,CHANGELOG.md,CONTRIBUTING.md,ARCHITECTURE.md"
+IGNORE_DIRS="node_modules,vendor,dist,build,.git,.idea,.vscode,__pycache__,.next,.nuxt"
+
+# Загрузка из конфига (если существует)
+if [[ -f "$config" ]]; then
+  CODE_DIRS="$(get_config_value "$config" "CODE_DIRS" "$CODE_DIRS")"
+  CODE_EXTS="$(get_config_value "$config" "CODE_EXTS" "$CODE_EXTS")"
+  DOC_DIRS="$(get_config_value "$config" "DOC_DIRS" "$DOC_DIRS")"
+  DOC_EXTS="$(get_config_value "$config" "DOC_EXTS" "$DOC_EXTS")"
+  DOC_FILES="$(get_config_value "$config" "DOC_FILES" "$DOC_FILES")"
+  IGNORE_DIRS="$(get_config_value "$config" "IGNORE_DIRS" "$IGNORE_DIRS")"
+fi
 
 # ─── Вспомогательные функции ────────────────────────────────────────────────────
 
-# CSV в regex: "a,b,c" → "(a|b|c)"
+# Экранирование спецсимволов regex
+escape_regex() {
+  sed 's/[.[\*^$()+?{|\\]/\\&/g'
+}
+
+# CSV в regex с экранированием: "a,b,c" → "(a|b|c)"
 csv_to_re() {
-  local s="${1:-}"
-  s="${s//,/|}"
-  echo "(${s})"
+  local s="${1:-}" IFS=,
+  local out=() token
+  for token in $s; do
+    token="$(printf '%s' "$token" | escape_regex)"
+    out+=("$token")
+  done
+  printf '(%s)' "$(IFS='|'; echo "${out[*]}")"
 }
 
 # ─── Построение regex паттернов ─────────────────────────────────────────────────
@@ -80,7 +103,7 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
   echo "   • Cursor Agent: введите '==' для автообновления"
   echo "   • Или вручную обновите docs/"
   echo ""
-  echo "📝 Конфигурация: .ai-docs-system/config.env"
+  echo "📝 Запись в pending updates для следующего \"==\""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
 fi

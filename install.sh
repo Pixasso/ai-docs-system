@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.0.0"
+VERSION="2.1.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -26,6 +26,27 @@ log_error() { echo -e "${RED}✗${NC} $1"; }
 log_step()  { echo -e "${BLUE}→${NC} $1"; }
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Безопасное чтение конфигурации
+# ═══════════════════════════════════════════════════════════════════════════════
+get_config_value() {
+  local file="$1" key="$2" default="$3"
+  grep -E "^${key}=" "$file" 2>/dev/null | cut -d'=' -f2- | head -1 || echo "$default"
+}
+
+set_config_value() {
+  local file="$1" key="$2" value="$3"
+  if grep -q "^${key}=" "$file" 2>/dev/null; then
+    # Обновляем существующий ключ
+    sed -i.bak "s|^${key}=.*|${key}=${value}|" "$file" 2>/dev/null || \
+      sed -i '' "s|^${key}=.*|${key}=${value}|" "$file" 2>/dev/null || true
+    rm -f "${file}.bak"
+  else
+    # Добавляем новый ключ
+    echo "${key}=${value}" >> "$file"
+  fi
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Справка
 # ═══════════════════════════════════════════════════════════════════════════════
 usage() {
@@ -36,16 +57,18 @@ AI Docs System v${VERSION}
 
 Аргументы:
   ЦЕЛЕВАЯ_ПАПКА   Путь к проекту (по умолчанию: текущая папка)
-  РЕЖИМ           'install' (по умолчанию) или 'update'
+  РЕЖИМ           'install' (по умолчанию), 'update' или 'uninstall'
 
 Режимы:
-  install   Полная установка (конфиг, хуки, шаблоны docs/, адаптеры)
-  update    Обновление хуков и пересборка адаптеров (без перезаписи конфига)
+  install    Полная установка (конфиг, хуки, шаблоны docs/, адаптеры)
+  update     Обновление хуков и пересборка адаптеров (без перезаписи конфига)
+  uninstall  Удаление модуля (docs/ сохраняется)
 
 Примеры:
-  ./install.sh /path/to/project         # Установка
-  ./install.sh /path/to/project update  # Обновление
-  ./install.sh .                        # Установка в текущую папку
+  ./install.sh /path/to/project           # Установка
+  ./install.sh /path/to/project update    # Обновление
+  ./install.sh /path/to/project uninstall # Удаление
+  ./install.sh .                          # Установка в текущую папку
 
 Конфигурация: .ai-docs-system/config.env
 EOF
@@ -60,12 +83,10 @@ build_instructions() {
   local rules_dir="$target/.ai-docs-system/rules"
   local output_file="$target/.ai-docs-system/instructions.md"
   
-  # Загружаем конфиг
-  local rules_enabled="doc-first,update-docs,adr,shortcuts"
+  # Загружаем конфиг безопасно
+  local rules_enabled="doc-first,update-docs,adr,shortcuts,structure"
   if [[ -f "$config_file" ]]; then
-    # shellcheck disable=SC1090
-    source "$config_file"
-    rules_enabled="${RULES_ENABLED:-$rules_enabled}"
+    rules_enabled="$(get_config_value "$config_file" "RULES_ENABLED" "$rules_enabled")"
   fi
   
   # Создаём заголовок
@@ -103,12 +124,10 @@ generate_adapters() {
   local target="$1"
   local config_file="$target/.ai-docs-system/config.env"
   
-  # Загружаем конфиг
+  # Загружаем конфиг безопасно
   local adapters="cursor"
   if [[ -f "$config_file" ]]; then
-    # shellcheck disable=SC1090
-    source "$config_file"
-    adapters="${ADAPTERS:-$adapters}"
+    adapters="$(get_config_value "$config_file" "ADAPTERS" "$adapters")"
   fi
   
   IFS=',' read -ra adapter_list <<< "$adapters"
@@ -240,10 +259,72 @@ if [[ ! -d "$TARGET/.git" ]]; then
 fi
 
 # Проверка режима
-if [[ "$MODE" != "install" && "$MODE" != "update" ]]; then
-  log_error "Неверный режим: $MODE (используйте 'install' или 'update')"
+if [[ "$MODE" != "install" && "$MODE" != "update" && "$MODE" != "uninstall" ]]; then
+  log_error "Неверный режим: $MODE (используйте 'install', 'update' или 'uninstall')"
   usage
   exit 1
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Режим UNINSTALL
+# ═══════════════════════════════════════════════════════════════════════════════
+if [[ "$MODE" == "uninstall" ]]; then
+echo ""
+  echo -e "${RED}═══════════════════════════════════════════════════════════════${NC}"
+  echo -e "${RED}  AI Docs System — Удаление${NC}"
+  echo -e "${RED}═══════════════════════════════════════════════════════════════${NC}"
+echo ""
+
+  log_step "Удаление AI Docs System из $TARGET"
+  
+  # 1. Восстановление git hooksPath
+  if [[ -f "$TARGET/.ai-docs-system/state/prev-hooksPath" ]]; then
+    prev_hooks=$(cat "$TARGET/.ai-docs-system/state/prev-hooksPath")
+    git -C "$TARGET" config core.hooksPath "$prev_hooks"
+    log_info "Восстановлен git hooksPath: $prev_hooks"
+  else
+    git -C "$TARGET" config --unset core.hooksPath 2>/dev/null || true
+    log_info "Сброшен git hooksPath"
+  fi
+  
+  # 2. Удаление .githooks (если managed)
+  if [[ -d "$TARGET/.githooks" ]]; then
+    rm -rf "$TARGET/.githooks"
+    log_info "Удалена папка .githooks/"
+  fi
+  
+  # 3. Удаление блоков из AI-файлов
+  for ai_file in ".cursorrules" "CLAUDE.md" ".clinerules" ".github/copilot-instructions.md"; do
+    file_path="$TARGET/$ai_file"
+    if [[ -f "$file_path" ]]; then
+      # Удаляем блок между # BEGIN ai-docs-system и # END ai-docs-system
+      sed -i.bak '/# BEGIN ai-docs-system/,/# END ai-docs-system/d' "$file_path" 2>/dev/null || \
+        sed -i '' '/# BEGIN ai-docs-system/,/# END ai-docs-system/d' "$file_path" 2>/dev/null || true
+      rm -f "${file_path}.bak"
+      log_info "Удалён блок из $ai_file"
+    fi
+  done
+  
+  # 4. Удаление .ai-docs-system/
+  if [[ -d "$TARGET/.ai-docs-system" ]]; then
+    rm -rf "$TARGET/.ai-docs-system"
+    log_info "Удалена папка .ai-docs-system/"
+  fi
+  
+  echo ""
+  echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
+  echo -e "${GREEN}  Удаление завершено!${NC}"
+  echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
+  echo ""
+  echo "Сохранено:"
+  echo "  • docs/ — ваша документация"
+  echo ""
+  echo "Удалено:"
+  echo "  • .ai-docs-system/"
+  echo "  • .githooks/ (если использовался)"
+  echo "  • Блоки в AI-файлах"
+  echo ""
+  exit 0
 fi
 
 echo ""
@@ -313,17 +394,77 @@ build_instructions "$TARGET"
 
 # ─── 3. Установка хуков ─────────────────────────────────────────────────────────
 log_step "Установка git-хуков..."
+setup_hooks "$TARGET"
 
-mkdir -p "$TARGET/.githooks"
-cp -f "$SCRIPT_DIR/githooks/pre-commit" "$TARGET/.githooks/pre-commit"
-chmod +x "$TARGET/.githooks/pre-commit"
-
-if [[ -f "$SCRIPT_DIR/githooks/pre-commit.cmd" ]]; then
-  cp -f "$SCRIPT_DIR/githooks/pre-commit.cmd" "$TARGET/.githooks/pre-commit.cmd"
-fi
-
-git -C "$TARGET" config core.hooksPath .githooks
-log_info "Хуки установлены в .githooks/"
+# ═══════════════════════════════════════════════════════════════════════════════
+# Установка git-хуков с поддержкой разных менеджеров
+# ═══════════════════════════════════════════════════════════════════════════════
+setup_hooks() {
+  local target="$1"
+  local config_file="$target/.ai-docs-system/config.env"
+  local state_dir="$target/.ai-docs-system/state"
+  
+  # Получаем режим из конфига
+  local hooks_mode="auto"
+  if [[ -f "$config_file" ]]; then
+    hooks_mode="$(get_config_value "$config_file" "HOOKS_MODE" "$hooks_mode")"
+  fi
+  
+  # Проверяем текущий hooksPath
+  local current_hooks_path="$(git -C "$target" config core.hooksPath 2>/dev/null || echo "")"
+  
+  # Режим off — пропускаем установку хуков
+  if [[ "$hooks_mode" == "off" ]]; then
+    log_warn "HOOKS_MODE=off — хуки не устанавливаются"
+    return 0
+  fi
+  
+  # Определяем режим: managed или integrate
+  local actual_mode="$hooks_mode"
+  if [[ "$hooks_mode" == "auto" ]]; then
+    if [[ -z "$current_hooks_path" || "$current_hooks_path" == ".githooks" ]]; then
+      actual_mode="managed"
+    else
+      actual_mode="integrate"
+    fi
+  fi
+  
+  # Режим managed: полный контроль над хуками
+  if [[ "$actual_mode" == "managed" ]]; then
+    # Сохраняем предыдущий hooksPath (если был)
+    mkdir -p "$state_dir"
+    if [[ -n "$current_hooks_path" && "$current_hooks_path" != ".githooks" ]]; then
+      echo "$current_hooks_path" > "$state_dir/prev-hooksPath"
+    fi
+    
+    # Устанавливаем хуки
+    mkdir -p "$target/.githooks"
+    cp -f "$SCRIPT_DIR/githooks/pre-commit" "$target/.githooks/pre-commit"
+    chmod +x "$target/.githooks/pre-commit"
+    
+    if [[ -f "$SCRIPT_DIR/githooks/pre-commit.cmd" ]]; then
+      cp -f "$SCRIPT_DIR/githooks/pre-commit.cmd" "$target/.githooks/pre-commit.cmd"
+    fi
+    
+    git -C "$target" config core.hooksPath .githooks
+    log_info "Хуки установлены в .githooks/ (managed режим)"
+    
+  # Режим integrate: не трогаем hooksPath, предлагаем интеграцию
+  else
+    mkdir -p "$target/.ai-docs-system/hooks"
+    cp -f "$SCRIPT_DIR/githooks/pre-commit" "$target/.ai-docs-system/hooks/pre-commit"
+    chmod +x "$target/.ai-docs-system/hooks/pre-commit"
+    
+    log_warn "Обнаружен другой менеджер хуков (core.hooksPath = $current_hooks_path)"
+    echo ""
+    echo "Добавьте в ваш pre-commit хук одну строку:"
+    echo ""
+    echo "  .ai-docs-system/hooks/pre-commit || true"
+    echo ""
+    echo "Или смените режим на managed: HOOKS_MODE=managed в config.env"
+    echo ""
+  fi
+}
 
 # ─── 4. Генерация адаптеров ─────────────────────────────────────────────────────
 log_step "Генерация адаптеров для AI..."

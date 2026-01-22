@@ -763,6 +763,11 @@ if [[ "$MODE" == "install" ]]; then
   # Копируем шаблоны
   cp -f "$SCRIPT_DIR/.ai-docs-system/templates/"*.md "$TARGET/.ai-docs-system/templates/" 2>/dev/null || true
   log_info "Шаблоны скопированы в templates/"
+  
+  # Копируем update.sh
+  cp -f "$SCRIPT_DIR/.ai-docs-system/update.sh" "$TARGET/.ai-docs-system/update.sh" 2>/dev/null || true
+  chmod +x "$TARGET/.ai-docs-system/update.sh" 2>/dev/null || true
+  log_info "update.sh скопирован"
 else
   # При update — обновляем правила и шаблоны (не перезаписываем существующий конфиг)
   
@@ -783,6 +788,8 @@ else
   
   cp -f "$SCRIPT_DIR/.ai-docs-system/rules/"*.md "$TARGET/.ai-docs-system/rules/" 2>/dev/null || true
   cp -f "$SCRIPT_DIR/.ai-docs-system/templates/"*.md "$TARGET/.ai-docs-system/templates/" 2>/dev/null || true
+  cp -f "$SCRIPT_DIR/.ai-docs-system/update.sh" "$TARGET/.ai-docs-system/update.sh" 2>/dev/null || true
+  chmod +x "$TARGET/.ai-docs-system/update.sh" 2>/dev/null || true
   log_info "Правила и шаблоны обновлены"
 fi
 

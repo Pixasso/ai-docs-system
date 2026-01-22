@@ -42,6 +42,17 @@ cd ai-docs-system
 
 ## Обновление
 
+### Способ 1: Прямо из проекта (⭐ рекомендуется, v2.2+)
+
+```bash
+cd /path/to/your-project
+.ai-docs-system/update.sh
+```
+
+Скрипт автоматически скачает последнюю версию и обновит систему.
+
+### Способ 2: Из репозитория ai-docs-system
+
 ```bash
 # macOS / Linux
 cd ai-docs-system
@@ -54,7 +65,7 @@ git pull
 .\install.ps1 -Target "C:\path\to\your\project" -Mode update
 ```
 
-> **Режим `update`**: обновляет правила и хуки, но **не перезаписывает** ваш `config.env`
+> **Режим `update`**: обновляет правила и хуки, мерджит новые ключи в `config.env` (не перезаписывает пользовательские значения)
 
 ## Что устанавливается
 
@@ -104,7 +115,13 @@ ADAPTERS=cursor
 
 После изменения конфига запустите:
 ```bash
-./install.sh . update
+# Из репозитория ai-docs-system:
+cd /path/to/ai-docs-system
+./install.sh /path/to/your-project update
+
+# Или прямо из проекта (с v2.2+):
+cd /path/to/your-project
+.ai-docs-system/update.sh
 ```
 
 ## Модульные правила

@@ -15,7 +15,7 @@ if %errorlevel% equ 0 (
 REM Fallback: показываем простое напоминание на чистом CMD
 for /f "usebackq delims=" %%f in (`git diff --cached --name-only 2^>nul`) do (
   echo %%f | findstr /r /c:"^src/" /c:"^app/" /c:"^lib/" /c:"^services/" >nul 2>&1
-  if !errorlevel! equ 0 (
+  if not errorlevel 1 (
     echo.
     echo ============================================================
     echo   Напоминание: проверьте, нужно ли обновить документацию

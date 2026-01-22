@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.1.0"
+VERSION="2.2.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -57,17 +57,19 @@ AI Docs System v${VERSION}
 
 Аргументы:
   ЦЕЛЕВАЯ_ПАПКА   Путь к проекту (по умолчанию: текущая папка)
-  РЕЖИМ           'install' (по умолчанию), 'update' или 'uninstall'
+  РЕЖИМ           'install' (по умолчанию), 'update', 'uninstall' или 'audit'
 
 Режимы:
   install    Полная установка (конфиг, хуки, шаблоны docs/, адаптеры)
-  update     Обновление хуков и пересборка адаптеров (без перезаписи конфига)
+  update     Обновление хуков и пересборка адаптеров (merge конфига)
   uninstall  Удаление модуля (docs/ сохраняется)
+  audit      Проверка состояния документации
 
 Примеры:
   ./install.sh /path/to/project           # Установка
   ./install.sh /path/to/project update    # Обновление
   ./install.sh /path/to/project uninstall # Удаление
+  ./install.sh /path/to/project audit     # Аудит
   ./install.sh .                          # Установка в текущую папку
 
 Конфигурация: .ai-docs-system/config.env
@@ -223,6 +225,321 @@ setup_hooks() {
   fi
 }
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Кроссплатформенный парсинг дат
+# ═══════════════════════════════════════════════════════════════════════════════
+date_to_epoch() {
+  local date_str="$1"  # YYYY-MM-DD
+  
+  # macOS (BSD date)
+  if date -j -f "%Y-%m-%d" "$date_str" "+%s" 2>/dev/null; then
+    return 0
+  fi
+  
+  # Linux (GNU date)
+  if date -d "$date_str" "+%s" 2>/dev/null; then
+    return 0
+  fi
+  
+  # Fallback: python3
+  python3 -c "from datetime import datetime; print(int(datetime.strptime('$date_str', '%Y-%m-%d').timestamp()))" 2>/dev/null || echo "0"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Консервативный merge конфига (при update)
+# ═══════════════════════════════════════════════════════════════════════════════
+merge_config() {
+  local target="$1"
+  local default_config="$SCRIPT_DIR/.ai-docs-system/config.env"
+  local user_config="$target/.ai-docs-system/config.env"
+  local temp_config="$user_config.merge.tmp"
+  
+  [[ ! -f "$default_config" ]] && { log_warn "Дефолтный конфиг не найден"; return 1; }
+  [[ ! -f "$user_config" ]] && { log_warn "Конфиг юзера не найден"; return 1; }
+  
+  log_step "Merge конфига (консервативный режим)..."
+  
+  # Читаем версионированные дефолты
+  local defaults_v2_0="doc-first,update-docs,adr,shortcuts"
+  local defaults_v2_1="doc-first,update-docs,adr,shortcuts,structure"
+  local defaults_v2_2="$defaults_v2_1"  # Пока без изменений
+  
+  # Список всех ключей из дефолтного конфига (кроме комментариев)
+  local keys
+  keys=$(grep -E "^[A-Z_]+=" "$default_config" | cut -d'=' -f1 | sort -u)
+  
+  # Начинаем с существующего конфига юзера
+  cp "$user_config" "$temp_config"
+  
+  local added=0
+  local skipped=0
+  
+  # Добавляем отсутствующие ключи
+  for key in $keys; do
+    if ! grep -q "^${key}=" "$user_config"; then
+      # Ключа нет у юзера — добавляем
+      local default_value
+      default_value=$(get_config_value "$default_config" "$key" "")
+      
+      # Находим комментарий перед ключом в дефолтном конфиге
+      local comment_block
+      comment_block=$(awk -v key="^${key}=" '
+        /^# ─── / { header=$0; comments=""; next }
+        /^# / { comments = comments $0 "\n"; next }
+        $0 ~ key { 
+          if (header) print header;
+          if (comments) printf "%s", comments;
+          exit
+        }
+        /^[A-Z_]+/ { comments="" }
+      ' "$default_config")
+      
+      # Собираем новые ключи во временный файл
+      {
+        if [[ -n "$comment_block" ]]; then
+          echo ""
+          echo "$comment_block"
+        fi
+        echo "${key}=${default_value}"
+      } >> "$temp_config.additions"
+      
+      ((added++))
+      log_info "+ $key=${default_value}"
+    else
+      ((skipped++))
+    fi
+  done
+  
+  # ВАЖНО: Вставляем ВСЕ новые ключи ПЕРЕД блоком "Примеры кастомизации" (один раз)
+  if [[ -f "$temp_config.additions" && -s "$temp_config.additions" ]]; then
+    local insert_marker="# Примеры кастомизации под специфичные проекты"
+    
+    if grep -q "$insert_marker" "$temp_config"; then
+      # Вставляем ПЕРЕД маркером через awk
+      awk -v additions="$(cat "$temp_config.additions")" '
+        /^# Примеры кастомизации/ {
+          print additions
+          print ""
+        }
+        { print }
+      ' "$temp_config" > "$temp_config.new" && mv "$temp_config.new" "$temp_config"
+    else
+      # Fallback: в конец
+      cat "$temp_config.additions" >> "$temp_config"
+    fi
+    
+    rm -f "$temp_config.additions"
+  fi
+  
+  # Специальная обработка RULES_ENABLED
+  local user_rules
+  user_rules=$(get_config_value "$user_config" "RULES_ENABLED" "")
+  
+  if [[ "$user_rules" == "$defaults_v2_0" ]]; then
+    # Юзер на старом дефолте → безопасно обновить
+    sed -i.bak "s/^RULES_ENABLED=.*/RULES_ENABLED=$defaults_v2_1/" "$temp_config" 2>/dev/null || \
+      sed -i '' "s/^RULES_ENABLED=.*/RULES_ENABLED=$defaults_v2_1/" "$temp_config" 2>/dev/null
+    rm -f "$temp_config.bak"
+    log_info "✓ RULES_ENABLED обновлён: $defaults_v2_1"
+  elif [[ -z "$user_rules" ]]; then
+    # Ключа нет вообще (добавлен выше)
+    :
+  else
+    # Юзер кастомизировал → не трогаем
+    log_warn "⚠ RULES_ENABLED не обновлён (кастомизирован: $user_rules)"
+    log_warn "  Новые правила: structure (добавьте вручную если нужно)"
+  fi
+  
+  # Применяем изменения
+  mv "$temp_config" "$user_config"
+  
+  echo ""
+  log_info "Merge завершён: +$added новых, ~$skipped существующих"
+  echo ""
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Аудит проекта  
+# ═══════════════════════════════════════════════════════════════════════════════
+audit_project() {
+  local target="$1"
+  local config_file="$target/.ai-docs-system/config.env"
+  
+  [[ ! -f "$config_file" ]] && { log_error "Конфиг не найден: $config_file"; exit 1; }
+  
+  # Загружаем конфиг
+  local code_dirs doc_dirs doc_exts ignore_dirs
+  local pending_local pending_shared doc_stale_days doc_stale_max
+  
+  code_dirs=$(get_config_value "$config_file" "CODE_DIRS" "src,app,lib")
+  doc_dirs=$(get_config_value "$config_file" "DOC_DIRS" "docs")
+  doc_exts=$(get_config_value "$config_file" "DOC_EXTS" "md,mdx")
+  ignore_dirs=$(get_config_value "$config_file" "IGNORE_DIRS" "node_modules,vendor,dist")
+  pending_local=$(get_config_value "$config_file" "PENDING_UPDATES_LOCAL" ".ai-docs-system/state/pending-updates.queue")
+  pending_shared=$(get_config_value "$config_file" "PENDING_UPDATES_SHARED" "")
+  doc_stale_days=$(get_config_value "$config_file" "DOC_STALE_DAYS" "30")
+  doc_stale_max=$(get_config_value "$config_file" "DOC_STALE_MAX" "5")
+  
+  echo ""
+  echo "╔═══════════════════════════════════════════════════════════════╗"
+  echo "║  AI Docs System — Аудит проекта                              ║"
+  echo "╚═══════════════════════════════════════════════════════════════╝"
+  echo ""
+  echo "Проект: $target"
+  echo "Конфиг: $config_file"
+  echo ""
+  
+  local total_issues=0
+  local pending_count=0
+  local readme_count=0
+  
+  # ─── 1. Pending Updates ─────────────────────────────────────────────────────
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📋 Pending Updates"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  # Local queue
+  if [[ -f "$target/$pending_local" ]]; then
+    pending_count=$(wc -l < "$target/$pending_local" | xargs)
+    if [[ $pending_count -gt 0 ]]; then
+      echo "  ⏳ $pending_count необработанных обновления:"
+      echo ""
+      
+      local idx=1
+      while IFS='|' read -r ts kind ref files_tab doc note; do
+        local ts_human
+        ts_human=$(date -r "$ts" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "unknown")
+        
+        local now_ts
+        now_ts=$(date +%s)
+        local age_sec=$((now_ts - ts))
+        local age_human
+        if [[ $age_sec -lt 3600 ]]; then
+          age_human="$((age_sec / 60)) мин назад"
+        elif [[ $age_sec -lt 86400 ]]; then
+          age_human="$((age_sec / 3600)) ч назад"
+        else
+          age_human="$((age_sec / 86400)) дней назад"
+        fi
+        
+        echo "  $idx. [local] $ts_human ($age_human)"
+        
+        IFS=$'\t' read -ra files_arr <<< "$files_tab"
+        for f in "${files_arr[@]}"; do
+          [[ -n "$f" ]] && echo "     • $f"
+        done
+        
+        [[ -n "$doc" ]] && echo "     → $doc"
+        
+        echo ""
+        ((idx++))
+      done < "$target/$pending_local"
+      
+      echo "  💡 Запустите: Cursor Agent → \"==\""
+      echo ""
+    else
+      echo "  ✓ Нет необработанных обновлений"
+      echo ""
+    fi
+  else
+    echo "  ✓ Очередь не существует (нет обновлений)"
+    echo ""
+  fi
+  
+  # Shared queue (если есть)
+  if [[ -n "$pending_shared" && -f "$target/$pending_shared" ]]; then
+    local shared_count
+    shared_count=$(wc -l < "$target/$pending_shared" | xargs)
+    if [[ $shared_count -gt 0 ]]; then
+      echo "  ⏳ $shared_count в shared очереди"
+      ((pending_count += shared_count))
+    fi
+  fi
+  
+  # .queue0 (fallback)
+  local queue0_files
+  queue0_files=$(find "$target/.ai-docs-system/state" -name "*.queue0" 2>/dev/null)
+  if [[ -n "$queue0_files" ]]; then
+    local queue0_count
+    queue0_count=$(echo "$queue0_files" | wc -l | xargs)
+    echo "  ⏳ $queue0_count .queue0 файлов (fallback)"
+    ((pending_count += queue0_count))
+  fi
+  
+  ((total_issues += pending_count))
+  
+  # ─── 2. README в коде ───────────────────────────────────────────────────────
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📁 README в коде"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local code_pattern=""
+  IFS=',' read -ra code_arr <<< "$code_dirs"
+  for dir in "${code_arr[@]}"; do
+    dir=$(echo "$dir" | xargs)
+    [[ -d "$target/$dir" ]] && code_pattern="$code_pattern -o -path $target/$dir/*"
+  done
+  
+  local prune_pattern=""
+  IFS=',' read -ra ignore_arr <<< "$ignore_dirs"
+  for idir in "${ignore_arr[@]}"; do
+    idir=$(echo "$idir" | xargs)
+    prune_pattern="$prune_pattern -o -path $target/$idir"
+  done
+  prune_pattern="${prune_pattern:4}"
+  
+  if [[ -n "$code_pattern" ]]; then
+    code_pattern="${code_pattern:4}"
+    
+    local ext_pattern=""
+    IFS=',' read -ra ext_arr <<< "$doc_exts"
+    for ext in "${ext_arr[@]}"; do
+      ext=$(echo "$ext" | xargs)
+      ext_pattern="$ext_pattern -o -name *.${ext}"
+    done
+    ext_pattern="${ext_pattern:4}"
+    
+    local readme_files
+    readme_files=$(find "$target" \( $prune_pattern \) -prune -o \( $code_pattern \) -type f \( $ext_pattern \) -print 2>/dev/null)
+    
+    if [[ -n "$readme_files" ]]; then
+      readme_count=$(echo "$readme_files" | wc -l | xargs)
+      echo "$readme_files" | while read -r f; do
+        local rel_path="${f#$target/}"
+        echo "  ⚠ $rel_path"
+        echo "     → Переместить в: docs/"
+        echo ""
+      done
+    else
+      echo "  ✓ README в коде не найдены"
+      echo ""
+    fi
+  else
+    echo "  ⚠ CODE_DIRS не настроены"
+    echo ""
+  fi
+  
+  ((total_issues += readme_count))
+  
+  # ─── Итого ──────────────────────────────────────────────────────────────────
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  if [[ $total_issues -eq 0 ]]; then
+    echo "✅ Проблем не обнаружено! Проект в отличном состоянии."
+  else
+    echo "Итого проблем: $total_issues"
+    [[ $pending_count -gt 0 ]] && echo "  • $pending_count pending updates"
+    [[ $readme_count -gt 0 ]] && echo "  • $readme_count README в коде"
+  fi
+  
+  echo ""
+  
+  return $total_issues
+}
+
 # ─── Cursor ─────────────────────────────────────────────────────────────────────
 generate_cursor_rules() {
   local target="$1"
@@ -329,10 +646,18 @@ if [[ ! -d "$TARGET/.git" ]]; then
 fi
 
 # Проверка режима
-if [[ "$MODE" != "install" && "$MODE" != "update" && "$MODE" != "uninstall" ]]; then
-  log_error "Неверный режим: $MODE (используйте 'install', 'update' или 'uninstall')"
+if [[ "$MODE" != "install" && "$MODE" != "update" && "$MODE" != "uninstall" && "$MODE" != "audit" ]]; then
+  log_error "Неверный режим: $MODE (используйте 'install', 'update', 'uninstall' или 'audit')"
   usage
   exit 1
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Режим AUDIT
+# ═══════════════════════════════════════════════════════════════════════════════
+if [[ "$MODE" == "audit" ]]; then
+  audit_project "$TARGET"
+  exit $?
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -451,6 +776,9 @@ else
       rm -f "$TARGET/.ai-docs-system/config.env.bak"
     fi
     log_info "config.env создан (миграция с v1, owner: @${owner:-unknown})"
+  else
+    # Конфиг есть — мерджим новые ключи
+    merge_config "$TARGET"
   fi
   
   cp -f "$SCRIPT_DIR/.ai-docs-system/rules/"*.md "$TARGET/.ai-docs-system/rules/" 2>/dev/null || true

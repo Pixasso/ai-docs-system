@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.3.0"
+VERSION="2.3.1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -613,13 +613,13 @@ generate_cursor_rules() {
   local end_marker="# END ai-docs-system"
   
   local block
-  block=$(cat <<EOF
+  block=$(cat <<'EOF'
 # BEGIN ai-docs-system
-# AI Docs System v${VERSION} — https://github.com/Pixasso/ai-docs-system
+# AI Docs System v2.3.1 — https://github.com/Pixasso/ai-docs-system
 # НЕ редактируйте этот блок. Запустите install.sh update для обновления.
 
-Прочитай и следуй инструкциям из \`.ai-docs-system/instructions.md`
-Конфигурация проекта: \`.ai-docs-system/config.env`
+Прочитай и следуй инструкциям из `.ai-docs-system/instructions.md`
+Конфигурация проекта: `.ai-docs-system/config.env`
 
 # END ai-docs-system
 EOF

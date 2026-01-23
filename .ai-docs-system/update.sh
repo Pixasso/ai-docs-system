@@ -4,7 +4,7 @@
 # Обновляет систему прямо из проекта
 #
 
-VERSION="2.3.6"
+VERSION="2.3.7"
 
 set -euo pipefail
 
@@ -65,16 +65,21 @@ log_step "Скачиваем версию: $UPDATE_REF..."
 if [[ "$UPDATE_REF" == v* ]]; then
   # Тег (v2.3.5)
   archive_url="https://github.com/Pixasso/ai-docs-system/archive/refs/tags/${UPDATE_REF}.tar.gz"
-  extract_dir="ai-docs-system-${UPDATE_REF#v}"
 else
   # Ветка (main, develop)
   archive_url="https://github.com/Pixasso/ai-docs-system/archive/refs/heads/${UPDATE_REF}.tar.gz"
-  extract_dir="ai-docs-system-${UPDATE_REF}"
 fi
 
 # Скачиваем архив репозитория
 if ! curl -fsSL "$archive_url" -o "$tmp_dir/repo.tar.gz"; then
   log_error "Не удалось скачать архив репозитория ($UPDATE_REF)"
+  exit 1
+fi
+
+# Определяем корневую папку архива (устойчиво для refs с '/')
+extract_dir="$(tar -tzf "$tmp_dir/repo.tar.gz" | head -1 | cut -d/ -f1)"
+if [[ -z "$extract_dir" ]]; then
+  log_error "Не удалось определить корневую папку архива"
   exit 1
 fi
 

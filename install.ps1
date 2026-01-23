@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Version = "2.3.6"
+$Version = "2.3.7"
 $ScriptDir = $PSScriptRoot
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -90,7 +90,7 @@ function Generate-CursorRules {
   
   $block = @"
 # BEGIN ai-docs-system
-# AI Docs System v2.3.6 — https://github.com/Pixasso/ai-docs-system
+# AI Docs System v2.3.7 — https://github.com/Pixasso/ai-docs-system
 # НЕ редактируйте этот блок. Запустите install.ps1 -Mode update для обновления.
 
 Прочитай и следуй инструкциям из ``.ai-docs-system/instructions.md``
@@ -416,8 +416,8 @@ function Merge-Config {
   if (Test-Path $rulesDir) {
     $availableRules = Get-ChildItem "$rulesDir\*.md" -ErrorAction SilentlyContinue | 
                       ForEach-Object { $_.BaseName } | 
-                      Sort-Object |
-                      Join-String -Separator ","
+                      Sort-Object
+    $availableRules = $availableRules -join ","
     
     if ($availableRules) {
       $tempContent = Get-Content $tempConfig -Raw
@@ -458,7 +458,8 @@ try {
 }
 
 # Проверка git-репозитория
-if (-not (Test-Path (Join-Path $Target ".git"))) {
+git -C $Target rev-parse --git-dir *> $null
+if ($LASTEXITCODE -ne 0) {
   Write-Err "Не git-репозиторий: $Target"
   Write-Host "Инициализируйте командой: git init"
   exit 1

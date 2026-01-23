@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.3.6"
+VERSION="2.3.7"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -753,7 +753,12 @@ TARGET="$(cd "$TARGET" 2>/dev/null && pwd)" || {
 }
 
 # Проверка git
-if [[ ! -d "$TARGET/.git" ]]; then
+if ! command -v git >/dev/null 2>&1; then
+  log_error "git не найден в PATH"
+  exit 1
+fi
+
+if ! git -C "$TARGET" rev-parse --git-dir >/dev/null 2>&1; then
   log_error "Не git-репозиторий: $TARGET"
   echo "Инициализируйте командой: git init"
   exit 1

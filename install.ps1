@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Version = "2.3.2"
+$Version = "2.3.3"
 $ScriptDir = $PSScriptRoot
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -19,6 +19,7 @@ function Write-Success { param($msg) Write-Host "[OK] $msg" -ForegroundColor Gre
 function Write-Warn { param($msg) Write-Host "[!] $msg" -ForegroundColor Yellow }
 function Write-Err { param($msg) Write-Host "[X] $msg" -ForegroundColor Red }
 function Write-Step { param($msg) Write-Host "[>] $msg" -ForegroundColor Cyan }
+function Write-Info { param($msg) Write-Host "    $msg" -ForegroundColor Gray }
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Вспомогательные функции
@@ -89,7 +90,7 @@ function Generate-CursorRules {
   
   $block = @"
 # BEGIN ai-docs-system
-# AI Docs System v2.0 — https://github.com/Pixasso/ai-docs-system
+# AI Docs System v2.3.3 — https://github.com/Pixasso/ai-docs-system
 # НЕ редактируйте этот блок. Запустите install.ps1 -Mode update для обновления.
 
 Прочитай и следуй инструкциям из ``.ai-docs-system/instructions.md``

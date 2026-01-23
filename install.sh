@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.3.2"
+VERSION="2.3.3"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -558,28 +558,48 @@ audit_project() {
   done
   
   
-  local prune_pattern=""
+  # Строим prune для ignore_dirs (через массив для безопасности)
+  local prune_args=()
   IFS=',' read -ra ignore_arr <<< "$ignore_dirs"
   for idir in "${ignore_arr[@]}"; do
     idir=$(echo "$idir" | xargs)
-    # Используем -name для матчинга на ЛЮБОМ уровне вложенности
-    prune_pattern="$prune_pattern -o -name $idir"
+    [[ -n "$idir" ]] && prune_args+=("-name" "$idir" "-o")
   done
-  prune_pattern="${prune_pattern:4}"
+  [[ ${#prune_args[@]} -gt 0 ]] && unset 'prune_args[-1]'  # Убираем последний "-o"
   
   if [[ -n "$code_pattern" ]]; then
     code_pattern="${code_pattern:4}"
     
-    local ext_pattern=""
+    # Строим ext_pattern через массив
+    local ext_args=()
     IFS=',' read -ra ext_arr <<< "$doc_exts"
     for ext in "${ext_arr[@]}"; do
       ext=$(echo "$ext" | xargs)
-      ext_pattern="$ext_pattern -o -name *.${ext}"
+      [[ -n "$ext" ]] && ext_args+=("-name" "*.${ext}" "-o")
     done
-    ext_pattern="${ext_pattern:4}"
+    [[ ${#ext_args[@]} -gt 0 ]] && unset 'ext_args[-1]'  # Убираем последний "-o"
+    
+    # Строим find команду через массивы
+    local find_args=("$target")
+    
+    # Добавляем prune
+    if [[ ${#prune_args[@]} -gt 0 ]]; then
+      find_args+=("(" "${prune_args[@]}" ")" "-prune" "-o")
+    fi
+    
+    # Добавляем code_pattern (оставляем строкой для совместимости с path)
+    find_args+=("(" "-path" "$target/$code_pattern" ")")
+    find_args+=("-type" "f")
+    
+    # Добавляем ext_pattern
+    if [[ ${#ext_args[@]} -gt 0 ]]; then
+      find_args+=("(" "${ext_args[@]}" ")")
+    fi
+    
+    find_args+=("-print")
     
     local readme_files
-    readme_files=$(find "$target" \( $prune_pattern \) -prune -o \( $code_pattern \) -type f \( $ext_pattern \) -print 2>/dev/null)
+    readme_files=$(find "${find_args[@]}" 2>/dev/null)
     
     if [[ -n "$readme_files" ]]; then
       readme_count=$(echo "$readme_files" | wc -l | xargs)
@@ -627,7 +647,7 @@ generate_cursor_rules() {
   local block
   block=$(cat <<'EOF'
 # BEGIN ai-docs-system
-# AI Docs System v2.3.2 — https://github.com/Pixasso/ai-docs-system
+# AI Docs System v2.3.3 — https://github.com/Pixasso/ai-docs-system
 # НЕ редактируйте этот блок. Запустите install.sh update для обновления.
 
 Прочитай и следуй инструкциям из `.ai-docs-system/instructions.md`

@@ -194,7 +194,7 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
       
       if [[ -n "$pending_shared" ]]; then
         # Определяем абсолютный путь для shared
-        local shared_path
+        shared_path=""
         if [[ "$pending_shared" == /* ]]; then
           # Абсолютный путь
           shared_path="$pending_shared"
@@ -209,7 +209,7 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
         # Используем те же переменные ts, kind, ref, files_tab, doc_hint, note, has_bad_chars
         if [[ "$has_bad_chars" == true ]]; then
           # .queue0 для shared
-          local shared_queue0="${shared_path%.queue}.queue0"
+          shared_queue0="${shared_path%.queue}.queue0"
           {
             printf '%s\0%s\0%s\0' "$ts" "$kind" "$ref"
             for f in "${changed_code_arr[@]}"; do
@@ -224,7 +224,7 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
         
         echo "📝 Запись в pending updates (shared) → $pending_shared"
       else
-        log_warn "⚠ PENDING_UPDATES_WRITE=$pending_write, но PENDING_UPDATES_SHARED пуст"
+        echo "⚠ PENDING_UPDATES_WRITE=$pending_write, но PENDING_UPDATES_SHARED пуст" >&2
       fi
     fi
   fi

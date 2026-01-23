@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.4.3"
+VERSION="2.4.4"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -542,9 +542,9 @@ audit_project() {
       local shared_count
       shared_count=$(wc -l < "$shared_path" | xargs)
       if [[ $shared_count -gt 0 ]]; then
-      echo "  ⏳ $shared_count в shared очереди"
-      ((pending_count += shared_count))
-    fi
+        echo "  ⏳ $shared_count в shared очереди"
+        ((pending_count += shared_count))
+      fi
     fi
   fi
   

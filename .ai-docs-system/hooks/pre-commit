@@ -144,6 +144,9 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
       : # ничего не делаем
     elif [[ "$pending_write" == "local" || "$pending_write" == "shared" || "$pending_write" == "both" ]]; then
       
+      # Guard: если нет изменений кода, ничего не пишем
+      [[ ${#changed_code_all[@]} -eq 0 ]] && return 0
+      
       # ─── Вычисляем общие переменные (ДО ветвления local/shared) ───────────
       ts=$(date +%s)
       ref="commit"

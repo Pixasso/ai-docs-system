@@ -4,7 +4,7 @@
 # Обновляет систему прямо из проекта
 #
 
-VERSION="2.4.3"
+VERSION="2.4.4"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ВАЖНО: Self-copy для безопасного обновления
@@ -74,6 +74,10 @@ get_config_value() {
 UPDATE_REF="${UPDATE_REF:-$(get_config_value "UPDATE_REF" "main")}"
 UPDATE_REF="$(echo "$UPDATE_REF" | xargs)"  # trim пробелов
 [[ -z "$UPDATE_REF" ]] && UPDATE_REF="main"
+
+# Нормализуем refs/tags/ и refs/heads/ (если пользователь скопировал полный ref)
+UPDATE_REF="${UPDATE_REF#refs/tags/}"
+UPDATE_REF="${UPDATE_REF#refs/heads/}"
 
 echo ""
 echo "╔═══════════════════════════════════════════════════════════════╗"

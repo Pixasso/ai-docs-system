@@ -4,9 +4,13 @@
 # Обновляет систему прямо из проекта
 #
 
-VERSION="2.3.11"
+VERSION="2.3.12"
 
 set -euo pipefail
+
+# Защита от проблем с UTF-8 кодировкой в разных терминалах
+export LANG="${LANG:-en_US.UTF-8}"
+export LC_ALL="${LC_ALL:-en_US.UTF-8}"
 
 # Цвета
 RED='\033[0;31m'

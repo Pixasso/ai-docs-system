@@ -4,7 +4,7 @@
 # Обновляет систему прямо из проекта
 #
 
-VERSION="2.3.3"
+VERSION="2.3.4"
 
 set -e
 
@@ -50,17 +50,31 @@ trap "rm -rf $tmp_dir" EXIT
 
 log_step "Скачиваем последнюю версию..."
 
-# Скачиваем install.sh и нужные файлы
-if ! curl -fsSL https://raw.githubusercontent.com/Pixasso/ai-docs-system/main/install.sh -o "$tmp_dir/install.sh"; then
-  log_error "Не удалось скачать install.sh"
+# Скачиваем архив репозитория
+if ! curl -fsSL https://github.com/Pixasso/ai-docs-system/archive/refs/heads/main.tar.gz -o "$tmp_dir/repo.tar.gz"; then
+  log_error "Не удалось скачать архив репозитория"
   exit 1
 fi
 
-chmod +x "$tmp_dir/install.sh"
+log_step "Распаковываем..."
+if ! tar -xzf "$tmp_dir/repo.tar.gz" -C "$tmp_dir"; then
+  log_error "Не удалось распаковать архив"
+  exit 1
+fi
+
+# После распаковки файлы в ai-docs-system-main/
+repo_dir="$tmp_dir/ai-docs-system-main"
+
+if [[ ! -f "$repo_dir/install.sh" ]]; then
+  log_error "Структура архива неожиданная"
+  exit 1
+fi
+
+chmod +x "$repo_dir/install.sh"
 
 # Показываем версию
 current_version="$VERSION"
-new_version=$(grep "^VERSION=" "$tmp_dir/install.sh" | head -1 | cut -d'"' -f2)
+new_version=$(grep "^VERSION=" "$repo_dir/install.sh" | head -1 | cut -d'"' -f2)
 
 echo ""
 echo "Текущая версия: $current_version"
@@ -81,7 +95,7 @@ log_step "Запускаем обновление..."
 echo ""
 
 # Запускаем install.sh в режиме update
-cd "$tmp_dir"
+cd "$repo_dir"
 ./install.sh "$repo_root" update
 
 echo ""

@@ -409,7 +409,7 @@ audit_project() {
       local idx=1
       while IFS='|' read -r ts kind ref files_tab doc note; do
         local ts_human
-        ts_human=$(date -r "$ts" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "unknown")
+        ts_human=$(date -r "$ts" "+%Y-%m-%d %H:%M" 2>/dev/null || date -d "@$ts" "+%Y-%m-%d %H:%M" 2>/dev/null || echo "unknown")
         
         local now_ts
         now_ts=$(date +%s)
@@ -548,13 +548,13 @@ generate_cursor_rules() {
   local end_marker="# END ai-docs-system"
   
   local block
-  block=$(cat <<'EOF'
+  block=$(cat <<EOF
 # BEGIN ai-docs-system
-# AI Docs System v2.0 — https://github.com/Pixasso/ai-docs-system
+# AI Docs System v${VERSION} — https://github.com/Pixasso/ai-docs-system
 # НЕ редактируйте этот блок. Запустите install.sh update для обновления.
 
-Прочитай и следуй инструкциям из `.ai-docs-system/instructions.md`
-Конфигурация проекта: `.ai-docs-system/config.env`
+Прочитай и следуй инструкциям из \`.ai-docs-system/instructions.md`
+Конфигурация проекта: \`.ai-docs-system/config.env`
 
 # END ai-docs-system
 EOF
@@ -588,8 +588,8 @@ generate_copilot_rules() {
   cat > "$target/.github/copilot-instructions.md" <<'EOF'
 # AI Docs System
 
-Прочитай и следуй инструкциям из `.ai-docs-system/instructions.md`
-Конфигурация проекта: `.ai-docs-system/config.env`
+Прочитай и следуй инструкциям из \`.ai-docs-system/instructions.md`
+Конфигурация проекта: \`.ai-docs-system/config.env`
 EOF
   log_info ".github/copilot-instructions.md создан"
 }
@@ -600,8 +600,8 @@ generate_claude_rules() {
   cat > "$target/CLAUDE.md" <<'EOF'
 # AI Docs System
 
-Прочитай и следуй инструкциям из `.ai-docs-system/instructions.md`
-Конфигурация проекта: `.ai-docs-system/config.env`
+Прочитай и следуй инструкциям из \`.ai-docs-system/instructions.md`
+Конфигурация проекта: \`.ai-docs-system/config.env`
 EOF
   log_info "CLAUDE.md создан"
 }
@@ -612,8 +612,8 @@ generate_cline_rules() {
   cat > "$target/.clinerules" <<'EOF'
 # AI Docs System
 
-Прочитай и следуй инструкциям из `.ai-docs-system/instructions.md`
-Конфигурация проекта: `.ai-docs-system/config.env`
+Прочитай и следуй инструкциям из \`.ai-docs-system/instructions.md`
+Конфигурация проекта: \`.ai-docs-system/config.env`
 EOF
   log_info ".clinerules создан"
 }
@@ -743,7 +743,7 @@ if [[ "$MODE" == "install" ]]; then
     cp "$SCRIPT_DIR/.ai-docs-system/config.env" "$TARGET/.ai-docs-system/config.env"
     
     # Подставляем владельца из git config
-    owner="$(git -C "$TARGET" config user.name 2>/dev/null || echo "$USER")"
+    owner="$(git -C "$TARGET" config user.name 2>/dev/null || id -un 2>/dev/null || echo "unknown")"
     if [[ -n "$owner" ]]; then
       sed -i.bak "s/@Pixasso/@$owner/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || \
         sed -i '' "s/@Pixasso/@$owner/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || true
@@ -774,7 +774,7 @@ else
   # Но если конфига нет вообще (миграция с v1) — создаём
   if [[ ! -f "$TARGET/.ai-docs-system/config.env" ]]; then
     cp "$SCRIPT_DIR/.ai-docs-system/config.env" "$TARGET/.ai-docs-system/config.env"
-    owner="$(git -C "$TARGET" config user.name 2>/dev/null || echo "$USER")"
+    owner="$(git -C "$TARGET" config user.name 2>/dev/null || id -un 2>/dev/null || echo "unknown")"
     if [[ -n "$owner" ]]; then
       sed -i.bak "s/@Pixasso/@$owner/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || \
         sed -i '' "s/@Pixasso/@$owner/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || true
@@ -843,4 +843,7 @@ echo ""
 echo "  3. Используйте:"
 echo "     • Измените код → при коммите увидите напоминание"
 echo "     • Cursor Agent: введите '==' для автообновления доки"
+echo ""
+echo "  4. Обновление системы:"
+echo "     cd \$PROJECT_ROOT && .ai-docs-system/update.sh"
 echo ""

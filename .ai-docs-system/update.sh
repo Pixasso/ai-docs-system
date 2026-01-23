@@ -4,6 +4,8 @@
 # Обновляет систему прямо из проекта
 #
 
+VERSION="2.2.0"
+
 set -e
 
 # Цвета
@@ -57,7 +59,7 @@ fi
 chmod +x "$tmp_dir/install.sh"
 
 # Показываем версию
-current_version=$(grep "^VERSION=" "$repo_root/.ai-docs-system/update.sh" 2>/dev/null | head -1 | cut -d'"' -f2 || echo "неизвестно")
+current_version="$VERSION"
 new_version=$(grep "^VERSION=" "$tmp_dir/install.sh" | head -1 | cut -d'"' -f2)
 
 echo ""

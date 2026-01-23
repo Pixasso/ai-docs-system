@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Version = "2.3.1"
+$Version = "2.3.2"
 $ScriptDir = $PSScriptRoot
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -382,7 +382,23 @@ function Merge-Config {
   } else {
     # Кастомизирован → не трогаем
     Write-Warning "⚠ RULES_ENABLED не обновлён (кастомизирован: $userRules)"
-    Write-Info "  Новые правила: structure (добавьте вручную если нужно)"
+    Write-Info "  Новые правила: structure, pending-write (добавьте вручную если нужно)"
+  }
+  
+  # Обновляем комментарий "# Доступные:" с актуальным списком правил
+  $rulesDir = Join-Path $TargetPath ".ai-docs-system\rules"
+  if (Test-Path $rulesDir) {
+    $availableRules = Get-ChildItem "$rulesDir\*.md" -ErrorAction SilentlyContinue | 
+                      ForEach-Object { $_.BaseName } | 
+                      Sort-Object |
+                      Join-String -Separator ","
+    
+    if ($availableRules) {
+      $tempContent = Get-Content $tempConfig -Raw
+      $tempContent = $tempContent -replace "(?m)^# Доступные:.*", "# Доступные: $availableRules"
+      $tempContent | Out-File $tempConfig -Encoding UTF8 -NoNewline
+      Write-Success "✓ Комментарий 'Доступные правила' обновлён"
+    }
   }
   
   # Применяем

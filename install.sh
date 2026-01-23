@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.3.1"
+VERSION="2.3.2"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -390,7 +390,19 @@ merge_config() {
   else
     # Юзер кастомизировал → не трогаем
     log_warn "⚠ RULES_ENABLED не обновлён (кастомизирован: $user_rules)"
-    log_warn "  Новые правила: structure (добавьте вручную если нужно)"
+    log_warn "  Новые правила: structure, pending-write (добавьте вручную если нужно)"
+  fi
+  
+  # Обновляем комментарий "# Доступные:" с актуальным списком правил
+  local available_rules
+  available_rules=$(ls "$target/.ai-docs-system/rules/"*.md 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/.md$//' | tr '\n' ',' | sed 's/,$//')
+  
+  if [[ -n "$available_rules" ]]; then
+    # Обновляем строку с "# Доступные:"
+    sed -i.bak "s|^# Доступные:.*|# Доступные: $available_rules|" "$temp_config" 2>/dev/null || \
+      sed -i '' "s|^# Доступные:.*|# Доступные: $available_rules|" "$temp_config" 2>/dev/null
+    rm -f "$temp_config.bak"
+    log_info "✓ Комментарий 'Доступные правила' обновлён"
   fi
   
   # Применяем изменения
@@ -615,7 +627,7 @@ generate_cursor_rules() {
   local block
   block=$(cat <<'EOF'
 # BEGIN ai-docs-system
-# AI Docs System v2.3.1 — https://github.com/Pixasso/ai-docs-system
+# AI Docs System v2.3.2 — https://github.com/Pixasso/ai-docs-system
 # НЕ редактируйте этот блок. Запустите install.sh update для обновления.
 
 Прочитай и следуй инструкциям из `.ai-docs-system/instructions.md`

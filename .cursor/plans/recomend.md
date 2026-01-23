@@ -1,45 +1,25 @@
-Согласен. SHA256 как opt‑in — ок, по умолчанию не надо. Но overhead можно почти убрать автоматизацией:
+Новые рекомендации (без SHA‑auto):
 
-Компромисс без ручного ввода:
+1) update.sh: try gh как fallback (скорость/надёжность)
+Если curl заблокирован корпоративной проксей, gh уже авторизован.
+Добавить fallback:
 
-Поддержать UPDATE_SHA256=auto в update.sh:
-если UPDATE_REF — tag, пробовать скачать checksums.txt из релиза.
-Если файла нет — просто предупреждение и continue.
-Мини‑код (update.sh):
-
-UPDATE_SHA256="${UPDATE_SHA256:-$(get_config_value "UPDATE_SHA256" "")}"
- 
-if [[ "$UPDATE_SHA256" == "auto" && "$UPDATE_REF" == v* ]]; then
-  checksums_url="https://github.com/Pixasso/ai-docs-system/releases/download/${UPDATE_REF}/checksums.txt"
-  if curl -fsSL "$checksums_url" -o "$tmp_dir/checksums.txt"; then
-    UPDATE_SHA256="$(grep "repo.tar.gz" "$tmp_dir/checksums.txt" | awk '{print $1}')"
-  else
-    log_warn "checksums.txt не найден — пропускаю проверку"
+if ! curl ...; then
+  if command -v gh >/dev/null 2>&1; then
+    gh api -H "Accept: application/octet-stream" \
+      "/repos/Pixasso/ai-docs-system/tarball/${UPDATE_REF}" > "$tmp_dir/repo.tar.gz" || true
   fi
 fi
-Автоматическая публикация checksums (GitHub Action):
+2) pre-commit: doc_hint по первому изменённому файлу — может быть неверно
+Если смешанные изменения (infra + feature), сейчас берётся первый файл.
+Простой апгрейд без оверинжа:
 
-name: release-checksums
-on:
-  release:
-    types: [published]
- 
-jobs:
-  checksums:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download tag tarball
-        run: |
-          TAG="${{ github.event.release.tag_name }}"
-          curl -L "https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz" -o repo.tar.gz
-      - name: Create checksums
-        run: sha256sum repo.tar.gz > checksums.txt
-      - name: Upload checksums
-        uses: softprops/action-gh-release@v1
-        with:
-          files: checksums.txt
-Итого:
+если любой файл матчится infra → docs/infrastructure/
+иначе если любой матчится architecture → docs/architecture/
+иначе features.
+Это уменьшит ложные рекомендации в pending‑queue.
+3) audit: pending_count считает только .queue (строки), но .queue0 может быть >1 записи
+Сейчас .queue0 счётчик == количество файлов .queue0, а не записей.
+В .queue0 записи разделены двойным NUL — можно хотя бы подсчитать \0\0 через tr -cd + awk (дёшево).
 
-99% пользователей ничего не трогают.
-Enterprise ставит UPDATE_SHA256=auto + UPDATE_REF=vX и получает проверку без ручного копипаста.
-Никакого оверхеда для мейнтейнера, если есть release‑workflow.
+Если хочешь — дам диффы по этим 3 пунктам.

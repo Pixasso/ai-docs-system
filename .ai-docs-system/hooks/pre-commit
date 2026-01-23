@@ -164,7 +164,7 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
         files_tab=$(printf '%s\t' "${changed_code_all[@]}" | sed 's/\t$//')
       fi
       
-      # Определяем doc_hint по маппингу
+      # Определяем doc_hint по маппингу (приоритет: infra > architecture > features)
       doc_hint=""
       map_features="$(get_config_value "$config" "MAP_FEATURES" "src/,app/,lib/")"
       map_architecture="$(get_config_value "$config" "MAP_ARCHITECTURE" "schema,models,types")"
@@ -175,29 +175,33 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
       map_architecture="${map_architecture//[[:space:]]/}"
       map_infrastructure="${map_infrastructure//[[:space:]]/}"
       
-      # Простая эвристика: первый файл определяет категорию
-      first_file="${changed_code_all[0]}"
-      
-      # Проверяем через цикл (пробелы уже убраны выше)
-      IFS=',' read -ra features_arr <<< "$map_features"
-      for pattern in "${features_arr[@]}"; do
-        [[ -z "$pattern" ]] && continue
-        [[ "$first_file" == *"$pattern"* ]] && { doc_hint="docs/features/"; break; }
+      # Анализируем ВСЕ изменённые файлы (не только первый)
+      # Приоритет: infra > architecture > features
+      IFS=',' read -ra infra_arr <<< "$map_infrastructure"
+      for file in "${changed_code_all[@]}"; do
+        for pattern in "${infra_arr[@]}"; do
+          [[ -z "$pattern" ]] && continue
+          [[ "$file" == *"$pattern"* ]] && { doc_hint="docs/infrastructure/"; break 2; }
+        done
       done
       
       if [[ -z "$doc_hint" ]]; then
         IFS=',' read -ra arch_arr <<< "$map_architecture"
-        for pattern in "${arch_arr[@]}"; do
-          [[ -z "$pattern" ]] && continue
-          [[ "$first_file" == *"$pattern"* ]] && { doc_hint="docs/architecture/"; break; }
+        for file in "${changed_code_all[@]}"; do
+          for pattern in "${arch_arr[@]}"; do
+            [[ -z "$pattern" ]] && continue
+            [[ "$file" == *"$pattern"* ]] && { doc_hint="docs/architecture/"; break 2; }
+          done
         done
       fi
       
       if [[ -z "$doc_hint" ]]; then
-        IFS=',' read -ra infra_arr <<< "$map_infrastructure"
-        for pattern in "${infra_arr[@]}"; do
-          [[ -z "$pattern" ]] && continue
-          [[ "$first_file" == *"$pattern"* ]] && { doc_hint="docs/infrastructure/"; break; }
+        IFS=',' read -ra features_arr <<< "$map_features"
+        for file in "${changed_code_all[@]}"; do
+          for pattern in "${features_arr[@]}"; do
+            [[ -z "$pattern" ]] && continue
+            [[ "$file" == *"$pattern"* ]] && { doc_hint="docs/features/"; break 2; }
+          done
         done
       fi
       

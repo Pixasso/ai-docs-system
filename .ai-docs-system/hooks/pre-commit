@@ -1,0 +1,263 @@
+#!/usr/bin/env bash
+#
+# AI Docs System — Pre-commit Hook (универсальный)
+# Напоминает обновить документацию при изменении кода
+# НЕ блокирует коммиты — просто дружеское напоминание
+#
+# Конфигурация: .ai-docs-system/config.env
+#
+
+# Переходим в корень репозитория
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$repo_root" || exit 0
+
+# ─── Безопасное чтение конфигурации ─────────────────────────────────────────────
+
+# Безопасная функция для чтения значений из config.env (без исполнения кода)
+get_config_value() {
+  local file="$1" key="$2" default="$3"
+  grep -E "^${key}=" "$file" 2>/dev/null | cut -d'=' -f2- | head -1 || echo "$default"
+}
+
+# ─── Загрузка конфигурации ──────────────────────────────────────────────────────
+config=".ai-docs-system/config.env"
+
+# Значения по умолчанию
+CODE_DIRS="src,app,apps,packages,services,server,client,api,lib,cmd,internal,supabase"
+CODE_EXTS="ts,tsx,js,jsx,mjs,cjs,py,go,rs,java,kt,kts,cs,php,rb,swift,c,cpp,h,hpp,sql,graphql,proto"
+DOC_DIRS="docs,doc,documentation"
+DOC_EXTS="md,mdx,rst,adoc"
+DOC_FILES="README.md,CHANGELOG.md,CONTRIBUTING.md,ARCHITECTURE.md"
+IGNORE_DIRS="node_modules,vendor,dist,build,.git,.idea,.vscode,__pycache__,.next,.nuxt"
+
+# Загрузка из конфига (если существует)
+if [[ -f "$config" ]]; then
+  CODE_DIRS="$(get_config_value "$config" "CODE_DIRS" "$CODE_DIRS")"
+  CODE_EXTS="$(get_config_value "$config" "CODE_EXTS" "$CODE_EXTS")"
+  DOC_DIRS="$(get_config_value "$config" "DOC_DIRS" "$DOC_DIRS")"
+  DOC_EXTS="$(get_config_value "$config" "DOC_EXTS" "$DOC_EXTS")"
+  DOC_FILES="$(get_config_value "$config" "DOC_FILES" "$DOC_FILES")"
+  IGNORE_DIRS="$(get_config_value "$config" "IGNORE_DIRS" "$IGNORE_DIRS")"
+fi
+
+# ─── Вспомогательные функции ────────────────────────────────────────────────────
+
+# Экранирование спецсимволов regex
+escape_regex() {
+  sed 's/[.[\*^$()+?{|\\]/\\&/g'
+}
+
+# CSV в regex с экранированием: "a,b,c" → "(a|b|c)"
+csv_to_re() {
+  local s="${1:-}" IFS=,
+  local out=() token
+  for token in $s; do
+    token="$(printf '%s' "$token" | escape_regex)"
+    out+=("$token")
+  done
+  printf '(%s)' "$(IFS='|'; echo "${out[*]}")"
+}
+
+# ─── Построение regex паттернов ─────────────────────────────────────────────────
+CODE_DIRS_RE="$(csv_to_re "$CODE_DIRS")"
+CODE_EXTS_RE="$(csv_to_re "$CODE_EXTS")"
+DOC_DIRS_RE="$(csv_to_re "$DOC_DIRS")"
+DOC_EXTS_RE="$(csv_to_re "$DOC_EXTS")"
+DOC_FILES_RE="$(csv_to_re "$DOC_FILES")"
+IGNORE_DIRS_RE="$(csv_to_re "$IGNORE_DIRS")"
+
+# Паттерн для документации: папки docs/ ИЛИ файлы *.md ИЛИ корневые файлы
+DOCS_RE="^${DOC_DIRS_RE}/|^${DOC_FILES_RE}$|\\.${DOC_EXTS_RE}$"
+
+# Паттерн для кода: папки src/ и т.д. ИЛИ файлы с нужными расширениями
+CODE_RE="^${CODE_DIRS_RE}/|\\.${CODE_EXTS_RE}$|(^|/)(Dockerfile|Makefile|docker-compose\\.ya?ml)$"
+
+# Паттерн для игнорирования
+IGNORE_RE="^${IGNORE_DIRS_RE}/|\\.ai-docs-system/"
+
+# ─── Получаем изменённые файлы (с NUL-разделителем для безопасности) ──────────
+changed_docs=""
+changed_code=""
+changed_code_all=()   # ВСЕ файлы кода (для записи в очередь)
+changed_code_arr=()   # Первые 10 файлов (для вывода)
+
+# Читаем файлы через NUL-разделитель
+while IFS= read -r -d '' file; do
+  # Проверяем на документацию
+  if echo "$file" | grep -Eq "$DOCS_RE"; then
+    changed_docs="yes"
+  # Проверяем на код (исключая игнорируемое)
+  elif echo "$file" | grep -Evq "$IGNORE_RE" && echo "$file" | grep -Eq "$CODE_RE"; then
+    changed_code="yes"
+    # Добавляем ВСЕ файлы в полный массив (для записи в очередь)
+    changed_code_all+=("$file")
+    # Для вывода — только первые 10
+    if [[ ${#changed_code_arr[@]} -lt 10 ]]; then
+      changed_code_arr+=("$file")
+    fi
+    # НЕ прерываем цикл — продолжаем искать changed_docs
+  fi
+done < <(git diff --cached --name-only -z --diff-filter=ACMR 2>/dev/null)
+
+# Если нет изменённых файлов
+[[ -z "$changed_code" && -z "$changed_docs" ]] && exit 0
+
+# ─── Показываем напоминание если нужно ──────────────────────────────────────────
+if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "⚠️  Напоминание: изменился код, но документация не обновлена"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Изменённые файлы:"
+  for f in "${changed_code_arr[@]}"; do
+    echo "  • $f"
+  done
+  echo ""
+  echo "💡 Рекомендуется обновить документацию:"
+  echo "   • Cursor Agent: введите '==' для автообновления"
+  echo "   • Или вручную обновите docs/"
+  echo ""
+  
+  # ─── Запись в pending updates ─────────────────────────────────────────────
+  if [[ -f "$config" ]]; then
+    pending_local="$(get_config_value "$config" "PENDING_UPDATES_LOCAL" ".ai-docs-system/state/pending-updates.queue")"
+    pending_write="$(get_config_value "$config" "PENDING_UPDATES_WRITE" "local")"
+    pending_shared="$(get_config_value "$config" "PENDING_UPDATES_SHARED" "")"
+    
+    # Пропускаем если запись отключена
+    if [[ "$pending_write" == "off" || "$pending_write" == "none" ]]; then
+      : # ничего не делаем
+    elif [[ "$pending_write" == "local" || "$pending_write" == "shared" || "$pending_write" == "both" ]]; then
+      
+      # ─── Вычисляем общие переменные (ДО ветвления local/shared) ───────────
+      ts=$(date +%s)
+      kind="code"
+      ref="commit"
+      note="pre-commit"
+      
+      # Проверяем КАЖДЫЙ путь на проблемные символы (используем полный массив)
+      has_bad_chars=false
+      for f in "${changed_code_all[@]}"; do
+        if [[ "$f" == *$'|'* || "$f" == *$'\t'* || "$f" == *$'\n'* ]]; then
+          has_bad_chars=true
+          break
+        fi
+      done
+      
+      # Собираем файлы через TAB (используем полный массив)
+      files_tab=""
+      if [[ "$has_bad_chars" == false ]]; then
+        files_tab=$(printf '%s\t' "${changed_code_all[@]}" | sed 's/\t$//')
+      fi
+      
+      # Определяем doc_hint по маппингу
+      doc_hint=""
+      map_features="$(get_config_value "$config" "MAP_FEATURES" "src/,app/,lib/")"
+      map_architecture="$(get_config_value "$config" "MAP_ARCHITECTURE" "schema,models,types")"
+      map_infrastructure="$(get_config_value "$config" "MAP_INFRASTRUCTURE" "deploy,docker")"
+      
+      # Простая эвристика: первый файл определяет категорию
+      first_file="${changed_code_all[0]}"
+      
+      # Проверяем через цикл с grep -F (без regex, точное совпадение подстрок)
+      # ВАЖНО: пропускаем пустые паттерны
+      IFS=',' read -ra features_arr <<< "$map_features"
+      for pattern in "${features_arr[@]}"; do
+        pattern=$(echo "$pattern" | xargs)
+        [[ -z "$pattern" ]] && continue
+        if echo "$first_file" | grep -qF "$pattern"; then
+          doc_hint="docs/features/"
+          break
+        fi
+      done
+      
+      if [[ -z "$doc_hint" ]]; then
+        IFS=',' read -ra arch_arr <<< "$map_architecture"
+        for pattern in "${arch_arr[@]}"; do
+          pattern=$(echo "$pattern" | xargs)
+          [[ -z "$pattern" ]] && continue
+          if echo "$first_file" | grep -qF "$pattern"; then
+            doc_hint="docs/architecture/"
+            break
+          fi
+        done
+      fi
+      
+      if [[ -z "$doc_hint" ]]; then
+        IFS=',' read -ra infra_arr <<< "$map_infrastructure"
+        for pattern in "${infra_arr[@]}"; do
+          pattern=$(echo "$pattern" | xargs)
+          [[ -z "$pattern" ]] && continue
+          if echo "$first_file" | grep -qF "$pattern"; then
+            doc_hint="docs/infrastructure/"
+            break
+          fi
+        done
+      fi
+      
+      [[ -z "$doc_hint" ]] && doc_hint="docs/"
+      
+      # Формируем entry для обычной записи
+      entry="${ts}|${kind}|${ref}|${files_tab}|${doc_hint}|${note}"
+      
+      # ─── Запись в LOCAL очередь ──────────────────────────────────────────
+      if [[ "$pending_write" == "local" || "$pending_write" == "both" ]]; then
+        mkdir -p "$(dirname "$pending_local")" 2>/dev/null
+        
+        if [[ "$has_bad_chars" == true ]]; then
+          queue0_file="${pending_local%.queue}.queue0"
+          {
+            printf '%s\0%s\0%s\0' "$ts" "$kind" "$ref"
+            for f in "${changed_code_all[@]}"; do
+              printf '%s\0' "$f"
+            done
+            printf '\0%s\0%s\0\0' "$doc_hint" "$note"
+          } >> "$queue0_file" 2>/dev/null
+        else
+          echo "$entry" >> "$pending_local" 2>/dev/null
+        fi
+        
+        echo "📝 Запись в pending updates (local) для следующего \"==\""
+      fi
+      
+      # ─── Запись в SHARED очередь ─────────────────────────────────────────
+      if [[ "$pending_write" == "shared" || "$pending_write" == "both" ]]; then
+        if [[ -n "$pending_shared" ]]; then
+          # Определяем абсолютный путь
+          shared_path=""
+          if [[ "$pending_shared" == /* ]]; then
+            shared_path="$pending_shared"
+          else
+            shared_path="$repo_root/$pending_shared"
+          fi
+          
+          mkdir -p "$(dirname "$shared_path")" 2>/dev/null
+          
+          if [[ "$has_bad_chars" == true ]]; then
+            shared_queue0="${shared_path%.queue}.queue0"
+            {
+              printf '%s\0%s\0%s\0' "$ts" "$kind" "$ref"
+              for f in "${changed_code_all[@]}"; do
+                printf '%s\0' "$f"
+              done
+              printf '\0%s\0%s\0\0' "$doc_hint" "$note"
+            } >> "$shared_queue0" 2>/dev/null
+          else
+            echo "$entry" >> "$shared_path" 2>/dev/null
+          fi
+          
+          echo "📝 Запись в pending updates (shared) → $pending_shared"
+        else
+          echo "⚠ PENDING_UPDATES_WRITE=$pending_write, но PENDING_UPDATES_SHARED пуст" >&2
+        fi
+      fi
+    fi
+  fi
+  
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+fi
+
+# Никогда не блокируем коммит
+exit 0

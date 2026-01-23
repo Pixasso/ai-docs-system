@@ -174,39 +174,30 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
       # Простая эвристика: первый файл определяет категорию
       first_file="${changed_code_all[0]}"
       
-      # Проверяем через цикл с grep -F (без regex, точное совпадение подстрок)
+      # Проверяем через цикл (без fork'ов — используем bash regex и read для trim)
       # ВАЖНО: пропускаем пустые паттерны
       IFS=',' read -ra features_arr <<< "$map_features"
       for pattern in "${features_arr[@]}"; do
-        pattern=$(echo "$pattern" | xargs)
+        read -r pattern <<< "$pattern"  # trim whitespace без fork
         [[ -z "$pattern" ]] && continue
-        if echo "$first_file" | grep -qF "$pattern"; then
-          doc_hint="docs/features/"
-          break
-        fi
+        [[ "$first_file" == *"$pattern"* ]] && { doc_hint="docs/features/"; break; }
       done
       
       if [[ -z "$doc_hint" ]]; then
         IFS=',' read -ra arch_arr <<< "$map_architecture"
         for pattern in "${arch_arr[@]}"; do
-          pattern=$(echo "$pattern" | xargs)
+          read -r pattern <<< "$pattern"
           [[ -z "$pattern" ]] && continue
-          if echo "$first_file" | grep -qF "$pattern"; then
-            doc_hint="docs/architecture/"
-            break
-          fi
+          [[ "$first_file" == *"$pattern"* ]] && { doc_hint="docs/architecture/"; break; }
         done
       fi
       
       if [[ -z "$doc_hint" ]]; then
         IFS=',' read -ra infra_arr <<< "$map_infrastructure"
         for pattern in "${infra_arr[@]}"; do
-          pattern=$(echo "$pattern" | xargs)
+          read -r pattern <<< "$pattern"
           [[ -z "$pattern" ]] && continue
-          if echo "$first_file" | grep -qF "$pattern"; then
-            doc_hint="docs/infrastructure/"
-            break
-          fi
+          [[ "$first_file" == *"$pattern"* ]] && { doc_hint="docs/infrastructure/"; break; }
         done
       fi
       

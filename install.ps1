@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Version = "2.3.9"
+$Version = "2.3.10"
 $ScriptDir = $PSScriptRoot
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -90,7 +90,7 @@ function Generate-CursorRules {
   
   $block = @"
 # BEGIN ai-docs-system
-# AI Docs System v2.3.9 — https://github.com/Pixasso/ai-docs-system
+# AI Docs System v2.3.10 — https://github.com/Pixasso/ai-docs-system
 # НЕ редактируйте этот блок. Запустите install.ps1 -Mode update для обновления.
 
 Прочитай и следуй инструкциям из ``.ai-docs-system/instructions.md``

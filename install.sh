@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.3.5"
+VERSION="2.3.6"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -402,17 +402,22 @@ merge_config() {
     fi
   fi
   
-  # Обновляем комментарий "# Доступные:" с актуальным списком правил
+  # Обновляем комментарий "# Доступные правила:" с актуальным списком
   local available_rules
   available_rules=$(ls "$target/.ai-docs-system/rules/"*.md 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/.md$//' | tr '\n' ',' | sed 's/,$//')
   
   if [[ -n "$available_rules" ]]; then
-    # Обновляем строку с "# Доступные:"
-    sed -i.bak "s|^# Доступные:.*|# Доступные: $available_rules|" "$temp_config" 2>/dev/null || \
-      sed -i '' "s|^# Доступные:.*|# Доступные: $available_rules|" "$temp_config" 2>/dev/null
+    sed -i.bak "s|^# Доступные правила:.*|# Доступные правила: $available_rules|" "$temp_config" 2>/dev/null || \
+      sed -i '' "s|^# Доступные правила:.*|# Доступные правила: $available_rules|" "$temp_config" 2>/dev/null
     rm -f "$temp_config.bak"
     log_info "✓ Комментарий 'Доступные правила' обновлён"
   fi
+  
+  # Обновляем комментарий "# Доступные адаптеры:" (фиксированный список)
+  local available_adapters="cursor,copilot,claude,cline"
+  sed -i.bak "s|^# Доступные адаптеры:.*|# Доступные адаптеры: $available_adapters|" "$temp_config" 2>/dev/null || \
+    sed -i '' "s|^# Доступные адаптеры:.*|# Доступные адаптеры: $available_adapters|" "$temp_config" 2>/dev/null
+  rm -f "$temp_config.bak"
   
   # Применяем изменения
   mv "$temp_config" "$user_config"

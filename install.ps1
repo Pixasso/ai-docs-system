@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Version = "2.3.5"
+$Version = "2.3.6"
 $ScriptDir = $PSScriptRoot
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -90,7 +90,7 @@ function Generate-CursorRules {
   
   $block = @"
 # BEGIN ai-docs-system
-# AI Docs System v2.3.5 — https://github.com/Pixasso/ai-docs-system
+# AI Docs System v2.3.6 — https://github.com/Pixasso/ai-docs-system
 # НЕ редактируйте этот блок. Запустите install.ps1 -Mode update для обновления.
 
 Прочитай и следуй инструкциям из ``.ai-docs-system/instructions.md``
@@ -411,7 +411,7 @@ function Merge-Config {
     }
   }
   
-  # Обновляем комментарий "# Доступные:" с актуальным списком правил
+  # Обновляем комментарий "# Доступные правила:" с актуальным списком
   $rulesDir = Join-Path $TargetPath ".ai-docs-system\rules"
   if (Test-Path $rulesDir) {
     $availableRules = Get-ChildItem "$rulesDir\*.md" -ErrorAction SilentlyContinue | 
@@ -421,11 +421,17 @@ function Merge-Config {
     
     if ($availableRules) {
       $tempContent = Get-Content $tempConfig -Raw
-      $tempContent = $tempContent -replace "(?m)^# Доступные:.*", "# Доступные: $availableRules"
+      $tempContent = $tempContent -replace "(?m)^# Доступные правила:.*", "# Доступные правила: $availableRules"
       $tempContent | Out-File $tempConfig -Encoding UTF8 -NoNewline
       Write-Success "✓ Комментарий 'Доступные правила' обновлён"
     }
   }
+  
+  # Обновляем комментарий "# Доступные адаптеры:" (фиксированный список)
+  $availableAdapters = "cursor,copilot,claude,cline"
+  $tempContent = Get-Content $tempConfig -Raw
+  $tempContent = $tempContent -replace "(?m)^# Доступные адаптеры:.*", "# Доступные адаптеры: $availableAdapters"
+  $tempContent | Out-File $tempConfig -Encoding UTF8 -NoNewline
   
   # Применяем
   Move-Item $tempConfig $userConfig -Force

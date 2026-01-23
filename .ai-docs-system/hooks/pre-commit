@@ -4,6 +4,9 @@
 # Напоминает обновить документацию при изменении кода
 # НЕ блокирует коммиты — просто дружеское напоминание
 #
+# ⚠️  КОПИЯ! Истина в: githooks/pre-commit
+# ⚠️  Не редактируйте напрямую — используйте install.sh update
+#
 # Конфигурация: .ai-docs-system/config.env
 #
 
@@ -66,14 +69,15 @@ DOC_EXTS_RE="$(csv_to_re "$DOC_EXTS")"
 DOC_FILES_RE="$(csv_to_re "$DOC_FILES")"
 IGNORE_DIRS_RE="$(csv_to_re "$IGNORE_DIRS")"
 
-# Паттерн для документации: папки docs/ ИЛИ файлы *.md ИЛИ корневые файлы
-DOCS_RE="^${DOC_DIRS_RE}/|^${DOC_FILES_RE}$|\\.${DOC_EXTS_RE}$"
+# Паттерн для документации: ТОЛЬКО папки docs/ ИЛИ корневые файлы (README.md и т.д.)
+# НЕ включаем *.md везде — иначе .ai-docs-system/instructions.md считается документацией
+DOCS_RE="^${DOC_DIRS_RE}/|^${DOC_FILES_RE}$"
 
 # Паттерн для кода: папки src/ и т.д. ИЛИ файлы с нужными расширениями
 CODE_RE="^${CODE_DIRS_RE}/|\\.${CODE_EXTS_RE}$|(^|/)(Dockerfile|Makefile|docker-compose\\.ya?ml)$"
 
-# Паттерн для игнорирования
-IGNORE_RE="^${IGNORE_DIRS_RE}/|\\.ai-docs-system/"
+# Паттерн для игнорирования (поддержка вложенных: apps/web/node_modules/)
+IGNORE_RE="(^|/)${IGNORE_DIRS_RE}/|\\.ai-docs-system/"
 
 # ─── Получаем изменённые файлы (с NUL-разделителем для безопасности) ──────────
 changed_docs=""

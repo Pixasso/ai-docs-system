@@ -4,7 +4,7 @@
 # Обновляет систему прямо из проекта
 #
 
-VERSION="2.3.14"
+VERSION="2.3.15"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ВАЖНО: Self-copy для безопасного обновления
@@ -15,13 +15,16 @@ VERSION="2.3.14"
 if [[ -z "${_UPDATE_RUNNING_FROM_TEMP:-}" ]]; then
   export _UPDATE_RUNNING_FROM_TEMP=1
   _tmp_script="$(mktemp)"
-  trap "rm -f '$_tmp_script'" EXIT
+  export _UPDATE_TMP_SCRIPT="$_tmp_script"
   cp "$0" "$_tmp_script"
   chmod +x "$_tmp_script"
   exec bash "$_tmp_script" "$@"
 fi
 
 set -euo pipefail
+
+# Cleanup временного файла (если запущено через self-copy)
+[[ -n "${_UPDATE_TMP_SCRIPT:-}" ]] && trap 'rm -f "$_UPDATE_TMP_SCRIPT"' EXIT
 
 # Защита от проблем с UTF-8 кодировкой в разных терминалах
 export LANG="${LANG:-en_US.UTF-8}"

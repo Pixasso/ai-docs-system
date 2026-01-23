@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.3.14"
+VERSION="2.3.15"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -609,20 +609,18 @@ audit_project() {
       find_args+=("(" "${ext_args[@]}" ")")
     fi
     
-    find_args+=("-print")
+    find_args+=("-print0")
     
-    local readme_files
-    readme_files=$(find "${find_args[@]}" 2>/dev/null)
+    readme_count=0
+    while IFS= read -r -d '' f; do
+      ((readme_count++))
+      local rel_path="${f#$target/}"
+      echo "  ⚠ $rel_path"
+      echo "     → Переместить в: docs/"
+      echo ""
+    done < <(find "${find_args[@]}" 2>/dev/null)
     
-    if [[ -n "$readme_files" ]]; then
-      readme_count=$(echo "$readme_files" | wc -l | xargs)
-      echo "$readme_files" | while read -r f; do
-        local rel_path="${f#$target/}"
-        echo "  ⚠ $rel_path"
-        echo "     → Переместить в: docs/"
-        echo ""
-      done
-    else
+    if [[ $readme_count -eq 0 ]]; then
       echo "  ✓ Документы в коде не найдены"
       echo ""
     fi

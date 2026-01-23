@@ -1,67 +1,52 @@
-Новые рекомендации + диффы:
+Новые рекомендации (с диффами):
 
-1) Audit find всё ещё сканирует весь репо
-Ограничь find корнями CODE_DIRS (быстрее на монорепах).
+1) update.sh: temp‑script не чистится (self‑copy leak)
+Сейчас exec убивает trap → файл в /tmp остаётся.
+Фикс: передать путь через env и ставить trap во второй фазе.
+
+--- a/.ai-docs-system/update.sh
++++ b/.ai-docs-system/update.sh
+@@ -15,11 +15,11 @@ if [[ -z "${_UPDATE_RUNNING_FROM_TEMP:-}" ]]; then
+   export _UPDATE_RUNNING_FROM_TEMP=1
+   _tmp_script="$(mktemp)"
+-  trap "rm -f '$_tmp_script'" EXIT
++  export _UPDATE_TMP_SCRIPT="$_tmp_script"
+   cp "$0" "$_tmp_script"
+   chmod +x "$_tmp_script"
+   exec bash "$_tmp_script" "$@"
+ fi
+ 
+ set -euo pipefail
++[[ -n "${_UPDATE_TMP_SCRIPT:-}" ]] && trap 'rm -f "$_UPDATE_TMP_SCRIPT"' EXIT
+2) install.sh audit: корректная обработка файлов с \n (надежность)
+Сейчас find → echo | while read ломается на нестандартных именах.
+Фикс через -print0:
 
 --- a/install.sh
 +++ b/install.sh
-@@ -569,15 +569,15 @@
--  # Строим code_args через массив (для корректной передачи в find)
--  local code_args=()
-+  # Строим список корней кода (быстрый find)
-+  local code_roots=()
-   IFS=',' read -ra code_arr <<< "$code_dirs"
-   for dir in "${code_arr[@]}"; do
-     dir=$(echo "$dir" | xargs)
--    [[ -n "$dir" && -d "$target/$dir" ]] && code_args+=("-path" "$target/$dir/*" "-o")
-+    [[ -n "$dir" && -d "$target/$dir" ]] && code_roots+=("$target/$dir")
-   done
--  [[ ${#code_args[@]} -gt 0 ]] && unset 'code_args[-1]'
- 
--  if [[ ${#code_args[@]} -gt 0 ]]; then
-+  if [[ ${#code_roots[@]} -gt 0 ]]; then
-@@ -595,7 +595,7 @@
--    local find_args=("$target")
-+    local find_args=("${code_roots[@]}")
-@@ -603,8 +603,6 @@
--    # Добавляем code_args
--    find_args+=("(" "${code_args[@]}" ")")
--    find_args+=("-type" "f")
-+    find_args+=("-type" "f")
-2) pending‑updates: выставлять kind по doc_hint
-Сейчас всегда code, хотя pending-write допускает infra|schema.
-
---- a/githooks/pre-commit
-+++ b/githooks/pre-commit
-@@ -149,7 +149,6 @@
--      kind="code"
-       ref="commit"
-       note="pre-commit"
-@@ -203,6 +202,13 @@
-       [[ -z "$doc_hint" ]] && doc_hint="docs/"
- 
-+      # kind по типу изменений
-+      case "$doc_hint" in
-+        "docs/infrastructure/") kind="infra" ;;
-+        "docs/architecture/")   kind="schema" ;;
-+        *)                      kind="code" ;;
-+      esac
+@@ -606,17 +606,18 @@
+-    local readme_files
+-    readme_files=$(find "${find_args[@]}" 2>/dev/null)
+-    
+-    if [[ -n "$readme_files" ]]; then
+-      readme_count=$(echo "$readme_files" | wc -l | xargs)
+-      echo "$readme_files" | while read -r f; do
+-        local rel_path="${f#$target/}"
+-        echo "  ⚠ $rel_path"
+-        echo "     → Переместить в: docs/"
+-        echo ""
+-      done
+-    else
++    readme_count=0
++    while IFS= read -r -d '' f; do
++      ((readme_count++))
++      local rel_path="${f#$target/}"
++      echo "  ⚠ $rel_path"
++      echo "     → Переместить в: docs/"
++      echo ""
++    done < <(find "${find_args[@]}" -print0 2>/dev/null)
 +
-       entry="${ts}|${kind}|${ref}|${files_tab}|${doc_hint}|${note}"
-После правки — ./install.sh . update чтобы синкнуть копии.
-
-3) update.sh: retry для curl (надёжность сети)
---- a/.ai-docs-system/update.sh
-+++ b/.ai-docs-system/update.sh
-@@ -61,6 +61,8 @@
- log_step "Скачиваем версию: $UPDATE_REF..."
-+curl_opts=(-fsSL --retry 3 --retry-delay 2 --retry-connrefused)
-@@ -72,7 +74,7 @@
--  if curl -fsSL "$archive_url" -o "$tmp_dir/repo.tar.gz" 2>/dev/null; then
-+  if curl "${curl_opts[@]}" "$archive_url" -o "$tmp_dir/repo.tar.gz" 2>/dev/null; then
-@@ -79,7 +81,7 @@
--    if curl -fsSL "$archive_url" -o "$tmp_dir/repo.tar.gz" 2>/dev/null; then
-+    if curl "${curl_opts[@]}" "$archive_url" -o "$tmp_dir/repo.tar.gz" 2>/dev/null; then
-@@ -85,7 +87,7 @@
--    if curl -fsSL "$archive_url" -o "$tmp_dir/repo.tar.gz" 2>/dev/null; then
-+    if curl "${curl_opts[@]}" "$archive_url" -o "$tmp_dir/repo.tar.gz" 2>/dev/null; then
++    if [[ $readme_count -eq 0 ]]; then
+       echo "  ✓ Документы в коде не найдены"
+       echo ""
+     fi

@@ -1,9 +1,10 @@
 # BEGIN ai-docs-system
-# AI Docs System v2.3.15 — https://github.com/Pixasso/ai-docs-system
+# AI Docs System v2.4.1 — https://github.com/Pixasso/ai-docs-system
 # НЕ редактируйте этот блок. Запустите install.sh update для обновления.
 
 Прочитай и следуй инструкциям из `.ai-docs-system/instructions.md`
 Конфигурация проекта: `.ai-docs-system/config.env`
 
 # END ai-docs-system
+
 

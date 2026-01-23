@@ -170,14 +170,17 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
       map_architecture="$(get_config_value "$config" "MAP_ARCHITECTURE" "schema,models,types")"
       map_infrastructure="$(get_config_value "$config" "MAP_INFRASTRUCTURE" "deploy,docker")"
       
+      # Pre-trim: убираем пробелы один раз (вместо trim в каждом цикле)
+      map_features="${map_features//[[:space:]]/}"
+      map_architecture="${map_architecture//[[:space:]]/}"
+      map_infrastructure="${map_infrastructure//[[:space:]]/}"
+      
       # Простая эвристика: первый файл определяет категорию
       first_file="${changed_code_all[0]}"
       
-      # Проверяем через цикл (без fork'ов — используем bash regex и read для trim)
-      # ВАЖНО: пропускаем пустые паттерны
+      # Проверяем через цикл (пробелы уже убраны выше)
       IFS=',' read -ra features_arr <<< "$map_features"
       for pattern in "${features_arr[@]}"; do
-        read -r pattern <<< "$pattern"  # trim whitespace без fork
         [[ -z "$pattern" ]] && continue
         [[ "$first_file" == *"$pattern"* ]] && { doc_hint="docs/features/"; break; }
       done
@@ -185,7 +188,6 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
       if [[ -z "$doc_hint" ]]; then
         IFS=',' read -ra arch_arr <<< "$map_architecture"
         for pattern in "${arch_arr[@]}"; do
-          read -r pattern <<< "$pattern"
           [[ -z "$pattern" ]] && continue
           [[ "$first_file" == *"$pattern"* ]] && { doc_hint="docs/architecture/"; break; }
         done
@@ -194,7 +196,6 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
       if [[ -z "$doc_hint" ]]; then
         IFS=',' read -ra infra_arr <<< "$map_infrastructure"
         for pattern in "${infra_arr[@]}"; do
-          read -r pattern <<< "$pattern"
           [[ -z "$pattern" ]] && continue
           [[ "$first_file" == *"$pattern"* ]] && { doc_hint="docs/infrastructure/"; break; }
         done

@@ -48,12 +48,12 @@
 
 ```markdown
 > **Status:** current | draft | legacy  
-> **Last verified:** YYYY-MM-DD  
+> **Last verified:** YYYY-MM-DD HH:MM  
 > **Owner:** @username
 ```
 
 - **Status:** `current` (актуальный), `draft` (черновик), `legacy` (устаревший)
-- **Last verified:** дата последней проверки (формат YYYY-MM-DD)
+- **Last verified:** дата и время последней проверки (формат `YYYY-MM-DD HH:MM`)
 - **Owner:** ответственный за документ
 
 ⛔ **ЗАПРЕЩЕНО добавлять** другие поля:
@@ -65,7 +65,7 @@
 2. СПРОСИ пользователя явно
 3. НЕ добавляй самостоятельно
 
-При обновлении документа — обнови `Last verified` на текущую дату.
+При обновлении документа — обнови `Last verified` на текущие дату и время.
 
 ---
 

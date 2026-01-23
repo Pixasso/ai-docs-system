@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.3.15"
+VERSION="2.4.1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -548,12 +548,26 @@ audit_project() {
     fi
   fi
   
-  # .queue0 (fallback)
-  local queue0_files
-  queue0_files=$(find "$target/.ai-docs-system/state" -name "*.queue0" 2>/dev/null)
-  if [[ -n "$queue0_files" ]]; then
-    local queue0_count
-    queue0_count=$(echo "$queue0_files" | wc -l | xargs)
+  # .queue0 (fallback) — ищем рядом с queue-файлами, а не через общий find
+  local queue0_count=0
+  
+  # Проверяем .queue0 рядом с локальной очередью
+  if [[ "$queue_path" == *.queue ]]; then
+    local queue0_local="${queue_path%.queue}.queue0"
+    [[ -f "$queue0_local" ]] && ((queue0_count++))
+  fi
+  
+  # Проверяем .queue0 рядом с shared очередью
+  if [[ -n "$pending_shared" ]]; then
+    local shared_queue_path
+    [[ "$pending_shared" == /* ]] && shared_queue_path="$pending_shared" || shared_queue_path="$target/$pending_shared"
+    if [[ "$shared_queue_path" == *.queue ]]; then
+      local queue0_shared="${shared_queue_path%.queue}.queue0"
+      [[ -f "$queue0_shared" ]] && ((queue0_count++))
+    fi
+  fi
+  
+  if [[ $queue0_count -gt 0 ]]; then
     echo "  ⏳ $queue0_count .queue0 файлов (fallback)"
     ((pending_count += queue0_count))
   fi

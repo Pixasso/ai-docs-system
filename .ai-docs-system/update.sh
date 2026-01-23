@@ -4,7 +4,7 @@
 # Обновляет систему прямо из проекта
 #
 
-VERSION="2.3.15"
+VERSION="2.4.1"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ВАЖНО: Self-copy для безопасного обновления
@@ -124,8 +124,11 @@ if [[ "$download_success" != "true" ]]; then
   exit 1
 fi
 
-# Определяем корневую папку архива (устойчиво для refs с '/')
-extract_dir="$(tar -tzf "$tmp_dir/repo.tar.gz" | head -1 | cut -d/ -f1)"
+# Определяем корневую папку архива (с явной обработкой ошибки tar -tzf)
+if ! extract_dir="$(tar -tzf "$tmp_dir/repo.tar.gz" 2>/dev/null | head -1 | cut -d/ -f1)"; then
+  log_error "Не удалось прочитать содержимое архива"
+  exit 1
+fi
 if [[ -z "$extract_dir" ]]; then
   log_error "Не удалось определить корневую папку архива"
   exit 1

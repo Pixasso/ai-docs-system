@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.3.7"
+VERSION="2.3.8"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -359,14 +359,16 @@ merge_config() {
     local insert_marker="# Примеры кастомизации под специфичные проекты"
     
     if grep -q "$insert_marker" "$temp_config"; then
-      # Вставляем ПЕРЕД маркером через awk
-      awk -v additions="$(cat "$temp_config.additions")" '
-        /^# Примеры кастомизации/ {
-          print additions
-          print ""
-        }
-        { print }
-      ' "$temp_config" > "$temp_config.new" && mv "$temp_config.new" "$temp_config"
+      # Вставляем ПЕРЕД маркером (без awk — безопасно для UTF-8 и спецсимволов)
+      {
+        while IFS= read -r line || [[ -n "$line" ]]; do
+          if [[ "$line" == "$insert_marker"* ]]; then
+            cat "$temp_config.additions"
+            echo ""
+          fi
+          printf '%s\n' "$line"
+        done < "$temp_config"
+      } > "$temp_config.new" && mv "$temp_config.new" "$temp_config"
     else
       # Fallback: в конец
       cat "$temp_config.additions" >> "$temp_config"

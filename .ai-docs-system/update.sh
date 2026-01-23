@@ -4,7 +4,7 @@
 # Обновляет систему прямо из проекта
 #
 
-VERSION="2.3.7"
+VERSION="2.3.8"
 
 set -euo pipefail
 

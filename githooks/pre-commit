@@ -50,11 +50,13 @@ escape_regex() {
 }
 
 # CSV в regex с экранированием: "a,b,c" → "(a|b|c)"
+# xargs убирает пробелы: "src, app" → "src" и "app" (а не " app")
 csv_to_re() {
   local s="${1:-}" IFS=,
   local out=() token
   for token in $s; do
-    token="$(printf '%s' "$token" | escape_regex)"
+    token="$(printf '%s' "$token" | xargs | escape_regex)"
+    [[ -z "$token" ]] && continue
     out+=("$token")
   done
   printf '(%s)' "$(IFS='|'; echo "${out[*]}")"
@@ -93,12 +95,13 @@ changed_code_all=()   # ВСЕ файлы кода (для записи в оч�
 changed_code_arr=()   # Первые 10 файлов (для вывода)
 
 # Читаем файлы через NUL-разделитель
+# Используем bash regex [[ =~ ]] вместо fork'а (echo | grep) — быстрее
 while IFS= read -r -d '' file; do
-  # Проверяем на документацию
-  if echo "$file" | grep -Eq "$DOCS_RE"; then
+  # Проверяем на документацию (исключая node_modules/docs/ и т.п.)
+  if [[ "$file" =~ $DOCS_RE ]] && [[ ! "$file" =~ $IGNORE_RE ]]; then
     changed_docs="yes"
   # Проверяем на код (исключая игнорируемое)
-  elif echo "$file" | grep -Evq "$IGNORE_RE" && echo "$file" | grep -Eq "$CODE_RE"; then
+  elif [[ ! "$file" =~ $IGNORE_RE ]] && [[ "$file" =~ $CODE_RE ]]; then
     changed_code="yes"
     # Добавляем ВСЕ файлы в полный массив (для записи в очередь)
     changed_code_all+=("$file")

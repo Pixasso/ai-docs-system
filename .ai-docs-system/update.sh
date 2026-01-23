@@ -4,7 +4,7 @@
 # Обновляет систему прямо из проекта
 #
 
-VERSION="2.4.1"
+VERSION="2.4.2"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ВАЖНО: Self-copy для безопасного обновления
@@ -47,6 +47,10 @@ repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
   log_error "Не найден git-репозиторий"
   exit 1
 }
+
+# Preflight: проверяем наличие curl и tar
+command -v curl >/dev/null 2>&1 || { log_error "curl не найден в PATH"; exit 1; }
+command -v tar  >/dev/null 2>&1 || { log_error "tar не найден в PATH"; exit 1; }
 
 config_file="$repo_root/.ai-docs-system/config.env"
 

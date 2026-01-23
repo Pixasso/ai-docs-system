@@ -43,7 +43,7 @@ function Build-Instructions {
   $rulesDir = Join-Path $TargetPath ".ai-docs-system\rules"
   $outputFile = Join-Path $TargetPath ".ai-docs-system\instructions.md"
   
-  $rulesEnabled = Get-ConfigValue -ConfigPath $configFile -Key "RULES_ENABLED" -Default "doc-first,update-docs,adr,shortcuts"
+  $rulesEnabled = Get-ConfigValue -ConfigPath $configFile -Key "RULES_ENABLED" -Default "doc-first,update-docs,adr,shortcuts,structure"
   
   # Создаём заголовок
   $header = @"
@@ -230,6 +230,35 @@ if ($Mode -eq "install") {
       Write-Success "config.env создан (миграция с v1, owner: @$owner)"
     } else {
       Write-Success "config.env создан (миграция с v1)"
+    }
+  } else {
+    # Конфиг есть — мерджим новые ключи (упрощенная версия)
+    Write-Step "Merge конфига (добавление новых ключей)..."
+    $defaultConfig = Get-Content $configSrc
+    $userConfig = Get-Content $configDst
+    $userKeys = $userConfig | Where-Object { $_ -match '^[A-Z_]+='}' | ForEach-Object { ($_ -split '=')[0] }
+    
+    $added = 0
+    $newLines = @()
+    foreach ($line in $defaultConfig) {
+      if ($line -match '^([A-Z_]+)=') {
+        $key = $matches[1]
+        if ($userKeys -notcontains $key) {
+          $newLines += $line
+          $added++
+          Write-Info "+ $key"
+        }
+      }
+    }
+    
+    if ($added -gt 0) {
+      # Добавляем новые ключи в конец
+      Add-Content -Path $configDst -Value ""
+      Add-Content -Path $configDst -Value "# ─── Добавлено при обновлении ───────────────────────────────"
+      Add-Content -Path $configDst -Value $newLines
+      Write-Success "Добавлено $added новых ключей"
+    } else {
+      Write-Success "Конфиг актуален"
     }
   }
   

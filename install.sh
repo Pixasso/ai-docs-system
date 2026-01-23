@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.3.4"
+VERSION="2.3.5"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -94,8 +94,8 @@ build_instructions() {
   local rules_dir="$target/.ai-docs-system/rules"
   local output_file="$target/.ai-docs-system/instructions.md"
   
-  # Загружаем конфиг безопасно
-  local rules_enabled="doc-first,update-docs,adr,shortcuts,structure"
+  # Загружаем конфиг безопасно (дефолт включает все стандартные правила)
+  local rules_enabled="doc-first,update-docs,adr,shortcuts,structure,pending-write"
   if [[ -f "$config_file" ]]; then
     rules_enabled="$(get_config_value "$config_file" "RULES_ENABLED" "$rules_enabled")"
   fi
@@ -305,7 +305,8 @@ merge_config() {
   # Читаем версионированные дефолты
   local defaults_v2_0="doc-first,update-docs,adr,shortcuts"
   local defaults_v2_1="doc-first,update-docs,adr,shortcuts,structure"
-  local defaults_v2_2="$defaults_v2_1"  # Пока без изменений
+  local defaults_v2_2="$defaults_v2_1"
+  local defaults_v2_3="doc-first,update-docs,adr,shortcuts,structure,pending-write"
   
   # Список всех ключей из дефолтного конфига (кроме комментариев)
   local keys
@@ -378,19 +379,27 @@ merge_config() {
   local user_rules
   user_rules=$(get_config_value "$user_config" "RULES_ENABLED" "")
   
-  if [[ "$user_rules" == "$defaults_v2_0" ]]; then
-    # Юзер на старом дефолте → безопасно обновить
-    sed -i.bak "s/^RULES_ENABLED=.*/RULES_ENABLED=$defaults_v2_1/" "$temp_config" 2>/dev/null || \
-      sed -i '' "s/^RULES_ENABLED=.*/RULES_ENABLED=$defaults_v2_1/" "$temp_config" 2>/dev/null
+  if [[ "$user_rules" == "$defaults_v2_0" || "$user_rules" == "$defaults_v2_1" || "$user_rules" == "$defaults_v2_2" ]]; then
+    # Юзер на старом дефолте → безопасно обновить до v2_3
+    sed -i.bak "s/^RULES_ENABLED=.*/RULES_ENABLED=$defaults_v2_3/" "$temp_config" 2>/dev/null || \
+      sed -i '' "s/^RULES_ENABLED=.*/RULES_ENABLED=$defaults_v2_3/" "$temp_config" 2>/dev/null
     rm -f "$temp_config.bak"
-    log_info "✓ RULES_ENABLED обновлён: $defaults_v2_1"
+    log_info "✓ RULES_ENABLED обновлён: $defaults_v2_3"
   elif [[ -z "$user_rules" ]]; then
-    # Ключа нет вообще (добавлен выше)
+    # Ключа нет вообще (добавлен выше из дефолта)
     :
   else
-    # Юзер кастомизировал → не трогаем
-    log_warn "⚠ RULES_ENABLED не обновлён (кастомизирован: $user_rules)"
-    log_warn "  Новые правила: structure, pending-write (добавьте вручную если нужно)"
+    # Юзер кастомизировал — показываем какие правила отсутствуют
+    local default_rules_sorted user_rules_sorted missing_rules
+    default_rules_sorted=$(echo "$defaults_v2_3" | tr ',' '\n' | sort)
+    user_rules_sorted=$(echo "$user_rules" | tr ',' '\n' | sort)
+    missing_rules=$(comm -23 <(echo "$default_rules_sorted") <(echo "$user_rules_sorted") | tr '\n' ',' | sed 's/,$//')
+    
+    if [[ -n "$missing_rules" ]]; then
+      log_warn "⚠ RULES_ENABLED не обновлён (кастомизирован: $user_rules)"
+      log_warn "  Новые правила доступны: $missing_rules"
+      log_warn "  Добавьте вручную: RULES_ENABLED=$user_rules,$missing_rules"
+    fi
   fi
   
   # Обновляем комментарий "# Доступные:" с актуальным списком правил
@@ -550,13 +559,14 @@ audit_project() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
-  local code_pattern=""
+  # Строим code_args через массив (для корректной передачи в find)
+  local code_args=()
   IFS=',' read -ra code_arr <<< "$code_dirs"
   for dir in "${code_arr[@]}"; do
     dir=$(echo "$dir" | xargs)
-    [[ -d "$target/$dir" ]] && code_pattern="$code_pattern -o -path $target/$dir/*"
+    [[ -n "$dir" && -d "$target/$dir" ]] && code_args+=("-path" "$target/$dir/*" "-o")
   done
-  
+  [[ ${#code_args[@]} -gt 0 ]] && unset 'code_args[-1]'  # Убираем последний "-o"
   
   # Строим prune для ignore_dirs (через массив для безопасности)
   local prune_args=()
@@ -567,10 +577,8 @@ audit_project() {
   done
   [[ ${#prune_args[@]} -gt 0 ]] && unset 'prune_args[-1]'  # Убираем последний "-o"
   
-  if [[ -n "$code_pattern" ]]; then
-    code_pattern="${code_pattern:4}"
-    
-    # Строим ext_pattern через массив
+  if [[ ${#code_args[@]} -gt 0 ]]; then
+    # Строим ext_args через массив
     local ext_args=()
     IFS=',' read -ra ext_arr <<< "$doc_exts"
     for ext in "${ext_arr[@]}"; do
@@ -587,11 +595,11 @@ audit_project() {
       find_args+=("(" "${prune_args[@]}" ")" "-prune" "-o")
     fi
     
-    # Добавляем code_pattern (оставляем строкой для совместимости с path)
-    find_args+=("(" "-path" "$target/$code_pattern" ")")
+    # Добавляем code_args (правильно через массив)
+    find_args+=("(" "${code_args[@]}" ")")
     find_args+=("-type" "f")
     
-    # Добавляем ext_pattern
+    # Добавляем ext_args
     if [[ ${#ext_args[@]} -gt 0 ]]; then
       find_args+=("(" "${ext_args[@]}" ")")
     fi
@@ -614,7 +622,7 @@ audit_project() {
       echo ""
     fi
   else
-    echo "  ⚠ CODE_DIRS не настроены"
+    echo "  ⚠ CODE_DIRS не настроены (или папки не существуют)"
     echo ""
   fi
   
@@ -644,27 +652,31 @@ generate_cursor_rules() {
   local begin_marker="# BEGIN ai-docs-system"
   local end_marker="# END ai-docs-system"
   
-  local block
-  block=$(cat <<'EOF'
-# BEGIN ai-docs-system
-# AI Docs System v2.3.4 — https://github.com/Pixasso/ai-docs-system
+  local block="$begin_marker
+# AI Docs System v$VERSION — https://github.com/Pixasso/ai-docs-system
 # НЕ редактируйте этот блок. Запустите install.sh update для обновления.
 
-Прочитай и следуй инструкциям из `.ai-docs-system/instructions.md`
-Конфигурация проекта: `.ai-docs-system/config.env`
+Прочитай и следуй инструкциям из \`.ai-docs-system/instructions.md\`
+Конфигурация проекта: \`.ai-docs-system/config.env\`
 
-# END ai-docs-system
-EOF
-)
+$end_marker"
   
   if [[ -f "$rules_file" ]]; then
     if grep -q "$begin_marker" "$rules_file" && grep -q "$end_marker" "$rules_file"; then
-      # Обновляем существующий блок
-      awk -v begin="$begin_marker" -v end="$end_marker" -v block="$block" '
-        $0 ~ begin { skip=1; print block; next }
-        $0 ~ end { skip=0; next }
-        !skip { print }
-      ' "$rules_file" > "$rules_file.tmp" && mv "$rules_file.tmp" "$rules_file"
+      # Обновляем существующий блок через sed
+      local tmp_file="${rules_file}.tmp"
+      
+      # Удаляем старый блок и вставляем новый
+      sed -e "/$begin_marker/,/$end_marker/d" "$rules_file" > "$tmp_file"
+      
+      # Добавляем новый блок в начало
+      {
+        echo "$block"
+        echo ""
+        cat "$tmp_file"
+      } > "$rules_file"
+      
+      rm -f "$tmp_file"
       log_info ".cursorrules обновлён"
     else
       # Добавляем блок
@@ -858,7 +870,6 @@ if [[ "$MODE" == "install" ]]; then
     # Подставляем владельца из git config
     owner="$(git -C "$TARGET" config user.name 2>/dev/null || id -un 2>/dev/null || echo "unknown")"
     if [[ -n "$owner" ]]; then
-      local owner_escaped
       owner_escaped=$(escape_sed_replacement "$owner")
       sed -i.bak "s/@Pixasso/@$owner_escaped/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || \
         sed -i '' "s/@Pixasso/@$owner_escaped/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || true
@@ -891,7 +902,6 @@ else
     cp "$SCRIPT_DIR/.ai-docs-system/config.env" "$TARGET/.ai-docs-system/config.env"
     owner="$(git -C "$TARGET" config user.name 2>/dev/null || id -un 2>/dev/null || echo "unknown")"
     if [[ -n "$owner" ]]; then
-      local owner_escaped
       owner_escaped=$(escape_sed_replacement "$owner")
       sed -i.bak "s/@Pixasso/@$owner_escaped/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || \
         sed -i '' "s/@Pixasso/@$owner_escaped/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || true

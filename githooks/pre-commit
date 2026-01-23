@@ -78,7 +78,8 @@ IGNORE_RE="^${IGNORE_DIRS_RE}/|\\.ai-docs-system/"
 # ─── Получаем изменённые файлы (с NUL-разделителем для безопасности) ──────────
 changed_docs=""
 changed_code=""
-changed_code_arr=()
+changed_code_all=()   # ВСЕ файлы кода (для записи в очередь)
+changed_code_arr=()   # Первые 10 файлов (для вывода)
 
 # Читаем файлы через NUL-разделитель
 while IFS= read -r -d '' file; do
@@ -88,7 +89,9 @@ while IFS= read -r -d '' file; do
   # Проверяем на код (исключая игнорируемое)
   elif echo "$file" | grep -Evq "$IGNORE_RE" && echo "$file" | grep -Eq "$CODE_RE"; then
     changed_code="yes"
-    # Добавляем в массив только первые 10 для вывода
+    # Добавляем ВСЕ файлы в полный массив (для записи в очередь)
+    changed_code_all+=("$file")
+    # Для вывода — только первые 10
     if [[ ${#changed_code_arr[@]} -lt 10 ]]; then
       changed_code_arr+=("$file")
     fi
@@ -120,45 +123,49 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
   if [[ -f "$config" ]]; then
     pending_local="$(get_config_value "$config" "PENDING_UPDATES_LOCAL" ".ai-docs-system/state/pending-updates.queue")"
     pending_write="$(get_config_value "$config" "PENDING_UPDATES_WRITE" "local")"
+    pending_shared="$(get_config_value "$config" "PENDING_UPDATES_SHARED" "")"
     
-    if [[ "$pending_write" == "local" || "$pending_write" == "both" ]]; then
-      # Создаём папку state если нет
-      mkdir -p "$(dirname "$pending_local")" 2>/dev/null
+    # Пропускаем если запись отключена
+    if [[ "$pending_write" == "off" || "$pending_write" == "none" ]]; then
+      : # ничего не делаем
+    elif [[ "$pending_write" == "local" || "$pending_write" == "shared" || "$pending_write" == "both" ]]; then
       
-      # Формат: timestamp|kind|ref|files_tab|doc_hint|note
+      # ─── Вычисляем общие переменные (ДО ветвления local/shared) ───────────
       ts=$(date +%s)
       kind="code"
       ref="commit"
+      note="pre-commit"
       
-      # Проверяем КАЖДЫЙ путь на проблемные символы ДО объединения
+      # Проверяем КАЖДЫЙ путь на проблемные символы (используем полный массив)
       has_bad_chars=false
-      for f in "${changed_code_arr[@]}"; do
-        # Проверяем на pipe, TAB, newline в имени файла
+      for f in "${changed_code_all[@]}"; do
         if [[ "$f" == *$'|'* || "$f" == *$'\t'* || "$f" == *$'\n'* ]]; then
           has_bad_chars=true
           break
         fi
       done
       
-      # Собираем файлы через TAB (только если нет проблемных символов)
+      # Собираем файлы через TAB (используем полный массив)
       files_tab=""
       if [[ "$has_bad_chars" == false ]]; then
-        files_tab=$(printf '%s\t' "${changed_code_arr[@]}" | sed 's/\t$//')
+        files_tab=$(printf '%s\t' "${changed_code_all[@]}" | sed 's/\t$//')
       fi
       
-      # Определяем doc_hint по маппингу (используем grep -F для точного совпадения)
+      # Определяем doc_hint по маппингу
       doc_hint=""
       map_features="$(get_config_value "$config" "MAP_FEATURES" "src/,app/,lib/")"
       map_architecture="$(get_config_value "$config" "MAP_ARCHITECTURE" "schema,models,types")"
       map_infrastructure="$(get_config_value "$config" "MAP_INFRASTRUCTURE" "deploy,docker")"
       
       # Простая эвристика: первый файл определяет категорию
-      first_file="${changed_code_arr[0]}"
+      first_file="${changed_code_all[0]}"
       
       # Проверяем через цикл с grep -F (без regex, точное совпадение подстрок)
+      # ВАЖНО: пропускаем пустые паттерны
       IFS=',' read -ra features_arr <<< "$map_features"
       for pattern in "${features_arr[@]}"; do
         pattern=$(echo "$pattern" | xargs)
+        [[ -z "$pattern" ]] && continue
         if echo "$first_file" | grep -qF "$pattern"; then
           doc_hint="docs/features/"
           break
@@ -169,6 +176,7 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
         IFS=',' read -ra arch_arr <<< "$map_architecture"
         for pattern in "${arch_arr[@]}"; do
           pattern=$(echo "$pattern" | xargs)
+          [[ -z "$pattern" ]] && continue
           if echo "$first_file" | grep -qF "$pattern"; then
             doc_hint="docs/architecture/"
             break
@@ -180,6 +188,7 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
         IFS=',' read -ra infra_arr <<< "$map_infrastructure"
         for pattern in "${infra_arr[@]}"; do
           pattern=$(echo "$pattern" | xargs)
+          [[ -z "$pattern" ]] && continue
           if echo "$first_file" | grep -qF "$pattern"; then
             doc_hint="docs/infrastructure/"
             break
@@ -189,66 +198,59 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
       
       [[ -z "$doc_hint" ]] && doc_hint="docs/"
       
-      note="pre-commit"
+      # Формируем entry для обычной записи
+      entry="${ts}|${kind}|${ref}|${files_tab}|${doc_hint}|${note}"
       
-      # Запись в очередь
-      if [[ "$has_bad_chars" == true ]]; then
-        # Fallback: .queue0 с NUL-разделителем (все поля + файлы через NUL)
-        # Формат: ts\0kind\0ref\0file1\0file2\0...\0\0doc_hint\0note\0\0 (двойной NUL = конец записи)
-        queue0_file="${pending_local%.queue}.queue0"
-        {
-          printf '%s\0%s\0%s\0' "$ts" "$kind" "$ref"
-          for f in "${changed_code_arr[@]}"; do
-            printf '%s\0' "$f"
-          done
-          printf '\0%s\0%s\0\0' "$doc_hint" "$note"
-        } >> "$queue0_file" 2>/dev/null
-      else
-        # Обычная запись: timestamp|kind|ref|files_tab|doc_hint|note
-        entry="${ts}|${kind}|${ref}|${files_tab}|${doc_hint}|${note}"
-        echo "$entry" >> "$pending_local" 2>/dev/null
-      fi
-      
-      echo "📝 Запись в pending updates (local) для следующего \"==\""
-    fi
-    
-    # Запись в shared очередь (если настроено)
-    if [[ "$pending_write" == "shared" || "$pending_write" == "both" ]]; then
-      pending_shared="$(get_config_value "$config" "PENDING_UPDATES_SHARED" "")"
-      
-      if [[ -n "$pending_shared" ]]; then
-        # Определяем абсолютный путь для shared
-        shared_path=""
-        if [[ "$pending_shared" == /* ]]; then
-          # Абсолютный путь
-          shared_path="$pending_shared"
-        else
-          # Относительный путь от repo root
-          shared_path="$repo_root/$pending_shared"
-        fi
+      # ─── Запись в LOCAL очередь ──────────────────────────────────────────
+      if [[ "$pending_write" == "local" || "$pending_write" == "both" ]]; then
+        mkdir -p "$(dirname "$pending_local")" 2>/dev/null
         
-        # Создаём папку для shared очереди
-        mkdir -p "$(dirname "$shared_path")" 2>/dev/null
-        
-        # Используем те же переменные ts, kind, ref, files_tab, doc_hint, note, has_bad_chars
         if [[ "$has_bad_chars" == true ]]; then
-          # .queue0 для shared
-          shared_queue0="${shared_path%.queue}.queue0"
+          queue0_file="${pending_local%.queue}.queue0"
           {
             printf '%s\0%s\0%s\0' "$ts" "$kind" "$ref"
-            for f in "${changed_code_arr[@]}"; do
+            for f in "${changed_code_all[@]}"; do
               printf '%s\0' "$f"
             done
             printf '\0%s\0%s\0\0' "$doc_hint" "$note"
-          } >> "$shared_queue0" 2>/dev/null
+          } >> "$queue0_file" 2>/dev/null
         else
-          # Обычная запись (используем уже подготовленный entry)
-          echo "$entry" >> "$shared_path" 2>/dev/null
+          echo "$entry" >> "$pending_local" 2>/dev/null
         fi
         
-        echo "📝 Запись в pending updates (shared) → $pending_shared"
-      else
-        echo "⚠ PENDING_UPDATES_WRITE=$pending_write, но PENDING_UPDATES_SHARED пуст" >&2
+        echo "📝 Запись в pending updates (local) для следующего \"==\""
+      fi
+      
+      # ─── Запись в SHARED очередь ─────────────────────────────────────────
+      if [[ "$pending_write" == "shared" || "$pending_write" == "both" ]]; then
+        if [[ -n "$pending_shared" ]]; then
+          # Определяем абсолютный путь
+          shared_path=""
+          if [[ "$pending_shared" == /* ]]; then
+            shared_path="$pending_shared"
+          else
+            shared_path="$repo_root/$pending_shared"
+          fi
+          
+          mkdir -p "$(dirname "$shared_path")" 2>/dev/null
+          
+          if [[ "$has_bad_chars" == true ]]; then
+            shared_queue0="${shared_path%.queue}.queue0"
+            {
+              printf '%s\0%s\0%s\0' "$ts" "$kind" "$ref"
+              for f in "${changed_code_all[@]}"; do
+                printf '%s\0' "$f"
+              done
+              printf '\0%s\0%s\0\0' "$doc_hint" "$note"
+            } >> "$shared_queue0" 2>/dev/null
+          else
+            echo "$entry" >> "$shared_path" 2>/dev/null
+          fi
+          
+          echo "📝 Запись в pending updates (shared) → $pending_shared"
+        else
+          echo "⚠ PENDING_UPDATES_WRITE=$pending_write, но PENDING_UPDATES_SHARED пуст" >&2
+        fi
       fi
     fi
   fi

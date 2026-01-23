@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Version = "2.3.4"
+$Version = "2.3.5"
 $ScriptDir = $PSScriptRoot
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -48,7 +48,7 @@ function Build-Instructions {
   $rulesDir = Join-Path $TargetPath ".ai-docs-system\rules"
   $outputFile = Join-Path $TargetPath ".ai-docs-system\instructions.md"
   
-  $rulesEnabled = Get-ConfigValue -ConfigPath $configFile -Key "RULES_ENABLED" -Default "doc-first,update-docs,adr,shortcuts,structure"
+  $rulesEnabled = Get-ConfigValue -ConfigPath $configFile -Key "RULES_ENABLED" -Default "doc-first,update-docs,adr,shortcuts,structure,pending-write"
   
   # Создаём заголовок
   $header = @"
@@ -90,7 +90,7 @@ function Generate-CursorRules {
   
   $block = @"
 # BEGIN ai-docs-system
-# AI Docs System v2.3.4 — https://github.com/Pixasso/ai-docs-system
+# AI Docs System v2.3.5 — https://github.com/Pixasso/ai-docs-system
 # НЕ редактируйте этот блок. Запустите install.ps1 -Mode update для обновления.
 
 Прочитай и следуй инструкциям из ``.ai-docs-system/instructions.md``
@@ -256,25 +256,41 @@ function Setup-Hooks {
       
       $hookFile = Join-Path $hooksDir "pre-commit"
       
+      # Копируем наш хук в .ai-docs-system/hooks/
+      $ourHooksDir = Join-Path $TargetPath ".ai-docs-system\hooks"
+      New-Item -ItemType Directory -Force -Path $ourHooksDir | Out-Null
+      Copy-Item -Force (Join-Path $ScriptDir "githooks\pre-commit") (Join-Path $ourHooksDir "pre-commit")
+      
       if (Test-Path $hookFile) {
-        $content = Get-Content $hookFile -Raw
-        if ($content -notlike "*ai-docs-system*") {
-          Add-Content $hookFile "`n# AI Docs System (integrated)`nif (Test-Path `"`$PSScriptRoot\..\.ai-docs-system\hooks\pre-commit`") { & `"`$PSScriptRoot\..\.ai-docs-system\hooks\pre-commit`" }"
-          Write-Success "✓ Вызов добавлен в существующий pre-commit"
+        $content = Get-Content $hookFile -Raw -ErrorAction SilentlyContinue
+        if ($content -like "*ai-docs-system*") {
+          Write-Success "✓ pre-commit уже интегрирован"
+        }
+        elseif ($content -match "^#!.*bash" -or $content -match "^#!/bin/sh") {
+          # Это bash hook — добавляем bash-строку
+          $bashIntegration = @"
+
+# AI Docs System (integrated)
+[[ -x ".ai-docs-system/hooks/pre-commit" ]] && .ai-docs-system/hooks/pre-commit
+"@
+          Add-Content $hookFile $bashIntegration
+          Write-Success "✓ Bash-вызов добавлен в существующий pre-commit"
+        }
+        else {
+          # Неизвестный формат hook — НЕ модифицируем, печатаем инструкцию
+          Write-Warn "⚠ Существующий pre-commit не модифицирован (неизвестный формат)"
+          Write-Info "  Добавьте вручную вызов: .ai-docs-system/hooks/pre-commit"
         }
       } else {
+        # Hook не существует — создаём bash wrapper
         @"
 #!/usr/bin/env bash
 # AI Docs System (integrated)
-[[ -x "`$GIT_DIR/../.ai-docs-system/hooks/pre-commit" ]] && "`$GIT_DIR/../.ai-docs-system/hooks/pre-commit"
+[[ -x ".ai-docs-system/hooks/pre-commit" ]] && .ai-docs-system/hooks/pre-commit
 "@ | Out-File $hookFile -Encoding UTF8 -NoNewline
         Write-Success "✓ Создан wrapper pre-commit"
       }
       
-      # Копируем наш хук
-      $ourHooksDir = Join-Path $TargetPath ".ai-docs-system\hooks"
-      New-Item -ItemType Directory -Force -Path $ourHooksDir | Out-Null
-      Copy-Item -Force (Join-Path $ScriptDir "githooks\pre-commit") (Join-Path $ourHooksDir "pre-commit")
       Write-Success "✓ Хук установлен в .ai-docs-system/hooks/ (integrate режим)"
     }
   }
@@ -302,7 +318,8 @@ function Merge-Config {
   # Версионированные дефолты для RULES_ENABLED
   $defaultsV20 = "doc-first,update-docs,adr,shortcuts"
   $defaultsV21 = "doc-first,update-docs,adr,shortcuts,structure"
-  $defaultsV22 = $defaultsV21  # Без изменений
+  $defaultsV22 = $defaultsV21
+  $defaultsV23 = "doc-first,update-docs,adr,shortcuts,structure,pending-write"
   
   # Получаем все ключи из дефолтного конфига
   $defaultContent = Get-Content $defaultConfig
@@ -372,18 +389,26 @@ function Merge-Config {
   # Специальная обработка RULES_ENABLED
   $userRules = Get-ConfigValue -ConfigPath $userConfig -Key "RULES_ENABLED" -Default ""
   
-  if ($userRules -eq $defaultsV20) {
-    # На старом дефолте → обновляем
+  if ($userRules -eq $defaultsV20 -or $userRules -eq $defaultsV21 -or $userRules -eq $defaultsV22) {
+    # На старом дефолте → обновляем до v2.3
     $tempContent = Get-Content $tempConfig -Raw
-    $tempContent = $tempContent -replace "(?m)^RULES_ENABLED=.*", "RULES_ENABLED=$defaultsV21"
+    $tempContent = $tempContent -replace "(?m)^RULES_ENABLED=.*", "RULES_ENABLED=$defaultsV23"
     $tempContent | Out-File $tempConfig -Encoding UTF8 -NoNewline
-    Write-Success "✓ RULES_ENABLED обновлён: $defaultsV21"
+    Write-Success "✓ RULES_ENABLED обновлён: $defaultsV23"
   } elseif ($userRules -eq "") {
-    # Пусто (добавлен выше)
+    # Пусто (добавлен выше из дефолта)
   } else {
-    # Кастомизирован → не трогаем
-    Write-Warning "⚠ RULES_ENABLED не обновлён (кастомизирован: $userRules)"
-    Write-Info "  Новые правила: structure, pending-write (добавьте вручную если нужно)"
+    # Кастомизирован — показываем какие правила отсутствуют
+    $defaultRulesList = $defaultsV23 -split ',' | Sort-Object
+    $userRulesList = $userRules -split ',' | Sort-Object
+    $missingRules = $defaultRulesList | Where-Object { $_ -notin $userRulesList }
+    
+    if ($missingRules) {
+      $missingStr = $missingRules -join ','
+      Write-Warning "⚠ RULES_ENABLED не обновлён (кастомизирован: $userRules)"
+      Write-Info "  Новые правила доступны: $missingStr"
+      Write-Info "  Добавьте вручную: RULES_ENABLED=$userRules,$missingStr"
+    }
   }
   
   # Обновляем комментарий "# Доступные:" с актуальным списком правил

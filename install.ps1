@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Version = "2.2.0"
+$Version = "2.3.0"
 $ScriptDir = $PSScriptRoot
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -30,9 +30,13 @@ function Get-ConfigValue {
   if (-not (Test-Path $ConfigPath)) { return $Default }
   
   $content = Get-Content $ConfigPath -Raw -ErrorAction SilentlyContinue
-  if ($content -match "(?m)^$Key=(.+)$") {
-    return $matches[1].Trim()
+  # Изменено: (.+) → (.*)  для поддержки пустых значений
+  if ($content -match "(?m)^$Key=(.*)$") {
+    $value = $matches[1].Trim()
+    # Различаем "пусто" и "не найдено"
+    return $value  # Может быть пустой строкой ""
   }
+  # Ключ не найден → возвращаем Default
   return $Default
 }
 
@@ -146,6 +150,247 @@ function Generate-Adapters {
   }
 }
 
+function Setup-Hooks {
+  param([string]$TargetPath)
+  
+  $config = Join-Path $TargetPath ".ai-docs-system\config.env"
+  $hooksMode = Get-ConfigValue -ConfigPath $config -Key "HOOKS_MODE" -Default "auto"
+  
+  # Получаем текущий core.hooksPath
+  $currentHooksPath = git -C $TargetPath config core.hooksPath 2>$null
+  
+  $actualMode = $hooksMode
+  
+  switch ($hooksMode) {
+    "auto" {
+      # Проверяем существующие хуки ПЕРЕД автоматическим переключением
+      $hasExistingHooks = $false
+      
+      # 1. Проверка .githooks/ на наличие файлов
+      if (Test-Path (Join-Path $TargetPath ".githooks")) {
+        $existingFiles = Get-ChildItem (Join-Path $TargetPath ".githooks") -File -ErrorAction SilentlyContinue
+        if ($existingFiles) { 
+          $hasExistingHooks = $true
+          Write-Warning "⚠ Обнаружены существующие хуки в .githooks/"
+        }
+      }
+      
+      # 2. Проверка .git/hooks/ (если core.hooksPath пуст)
+      if (-not $currentHooksPath) {
+        $gitHooks = Get-ChildItem (Join-Path $TargetPath ".git\hooks\pre-*"),(Join-Path $TargetPath ".git\hooks\post-*"),(Join-Path $TargetPath ".git\hooks\commit-msg") -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike "*.sample" }
+        if ($gitHooks) { 
+          $hasExistingHooks = $true
+          Write-Warning "⚠ Обнаружены существующие хуки в .git/hooks/"
+        }
+      }
+      
+      if ($hasExistingHooks) {
+        # Автоматически переключаемся на integrate (безопасный режим)
+        $actualMode = "integrate"
+        Write-Warning "→ Автоматический режим: integrate (безопасная интеграция)"
+      } elseif (-not $currentHooksPath -or $currentHooksPath -eq ".githooks") {
+        $actualMode = "managed"
+      } else {
+        $actualMode = "integrate"
+      }
+    }
+    
+    "managed" {
+      git -C $TargetPath config core.hooksPath ".githooks"
+      # Сохраняем предыдущий hooksPath (если был)
+      if ($currentHooksPath -and $currentHooksPath -ne ".githooks") {
+        $stateDir = Join-Path $TargetPath ".ai-docs-system\state"
+        New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+        Set-Content -Path (Join-Path $stateDir "prev-hooksPath") -Value $currentHooksPath -NoNewline
+      }
+      Write-Success "✓ Managed режим (core.hooksPath = .githooks)"
+    }
+    
+    "integrate" {
+      Write-Info "Режим integrate: добавление вызова в существующий pre-commit"
+    }
+    
+    "off" {
+      Write-Info "Хуки отключены (HOOKS_MODE=off)"
+      return
+    }
+  }
+  
+  # Устанавливаем хуки согласно режиму
+  switch ($actualMode) {
+    "managed" {
+      $hooksDir = Join-Path $TargetPath ".githooks"
+      New-Item -ItemType Directory -Force -Path $hooksDir | Out-Null
+      
+      # Проверка на существующий pre-commit (бэкап если не наш)
+      $preCommit = Join-Path $hooksDir "pre-commit"
+      if (Test-Path $preCommit) {
+        $content = Get-Content $preCommit -Raw -ErrorAction SilentlyContinue
+        if ($content -and $content -notlike "*AI Docs System*") {
+          # Не наш хук → создаём бэкап
+          $timestamp = [int][double]::Parse((Get-Date -UFormat %s))
+          Move-Item $preCommit "$preCommit.bak.$timestamp" -Force
+          Write-Warning "⚠ Существующий pre-commit переименован в .bak"
+        }
+      }
+      
+      Copy-Item -Force (Join-Path $ScriptDir "githooks\pre-commit") $preCommit
+      Copy-Item -Force (Join-Path $ScriptDir "githooks\pre-commit.cmd") (Join-Path $hooksDir "pre-commit.cmd") -ErrorAction SilentlyContinue
+      
+      # Маркер-файл (для безопасного удаления при uninstall)
+      New-Item -ItemType File -Force -Path (Join-Path $hooksDir ".ai-docs-system-managed") | Out-Null
+      
+      git -C $TargetPath config core.hooksPath ".githooks"
+      Write-Success "✓ Хуки установлены в .githooks/ (managed режим)"
+    }
+    
+    "integrate" {
+      # Определяем где активные хуки
+      $hooksDir = if ($currentHooksPath) { 
+        Join-Path $TargetPath $currentHooksPath 
+      } else { 
+        Join-Path $TargetPath ".git\hooks" 
+      }
+      New-Item -ItemType Directory -Force -Path $hooksDir | Out-Null
+      
+      $hookFile = Join-Path $hooksDir "pre-commit"
+      
+      if (Test-Path $hookFile) {
+        $content = Get-Content $hookFile -Raw
+        if ($content -notlike "*ai-docs-system*") {
+          Add-Content $hookFile "`n# AI Docs System (integrated)`nif (Test-Path `"`$PSScriptRoot\..\.ai-docs-system\hooks\pre-commit`") { & `"`$PSScriptRoot\..\.ai-docs-system\hooks\pre-commit`" }"
+          Write-Success "✓ Вызов добавлен в существующий pre-commit"
+        }
+      } else {
+        @"
+#!/usr/bin/env bash
+# AI Docs System (integrated)
+[[ -x "`$GIT_DIR/../.ai-docs-system/hooks/pre-commit" ]] && "`$GIT_DIR/../.ai-docs-system/hooks/pre-commit"
+"@ | Out-File $hookFile -Encoding UTF8 -NoNewline
+        Write-Success "✓ Создан wrapper pre-commit"
+      }
+      
+      # Копируем наш хук
+      $ourHooksDir = Join-Path $TargetPath ".ai-docs-system\hooks"
+      New-Item -ItemType Directory -Force -Path $ourHooksDir | Out-Null
+      Copy-Item -Force (Join-Path $ScriptDir "githooks\pre-commit") (Join-Path $ourHooksDir "pre-commit")
+      Write-Success "✓ Хук установлен в .ai-docs-system/hooks/ (integrate режим)"
+    }
+  }
+}
+
+function Merge-Config {
+  param([string]$TargetPath)
+  
+  $defaultConfig = Join-Path $ScriptDir ".ai-docs-system\config.env"
+  $userConfig = Join-Path $TargetPath ".ai-docs-system\config.env"
+  $tempConfig = "$userConfig.merge.tmp"
+  
+  if (-not (Test-Path $defaultConfig)) {
+    Write-Warning "⚠ Дефолтный конфиг не найден"
+    return
+  }
+  
+  if (-not (Test-Path $userConfig)) {
+    Write-Warning "⚠ Конфиг юзера не найден"
+    return
+  }
+  
+  Write-Step "Merge конфига (консервативный режим)..."
+  
+  # Версионированные дефолты для RULES_ENABLED
+  $defaultsV20 = "doc-first,update-docs,adr,shortcuts"
+  $defaultsV21 = "doc-first,update-docs,adr,shortcuts,structure"
+  $defaultsV22 = $defaultsV21  # Без изменений
+  
+  # Получаем все ключи из дефолтного конфига
+  $defaultContent = Get-Content $defaultConfig
+  $keys = $defaultContent | Where-Object { $_ -match '^([A-Z_]+)=' } | ForEach-Object {
+    ($_ -split '=', 2)[0]
+  } | Sort-Object -Unique
+  
+  # Начинаем с конфига юзера
+  Copy-Item $userConfig $tempConfig -Force
+  
+  $added = 0
+  $skipped = 0
+  $additions = @()
+  
+  # Добавляем отсутствующие ключи
+  foreach ($key in $keys) {
+    $userValue = Get-ConfigValue -ConfigPath $userConfig -Key $key -Default $null
+    
+    if ($null -eq $userValue) {
+      # Ключа нет → добавляем
+      $defaultValue = Get-ConfigValue -ConfigPath $defaultConfig -Key $key -Default ""
+      
+      # Собираем комментарии перед ключом
+      $commentBlock = ""
+      $inComments = $false
+      foreach ($line in $defaultContent) {
+        if ($line -match "^# ───") {
+          $commentBlock = "$line`n"
+          $inComments = $true
+        } elseif ($inComments -and $line -match "^# ") {
+          $commentBlock += "$line`n"
+        } elseif ($line -match "^$key=") {
+          if ($commentBlock) {
+            $additions += "`n$commentBlock$key=$defaultValue"
+          } else {
+            $additions += "$key=$defaultValue"
+          }
+          break
+        } elseif ($line -match "^[A-Z_]+=") {
+          $inComments = $false
+          $commentBlock = ""
+        }
+      }
+      
+      $added++
+      Write-Info "+ $key=$defaultValue"
+    } else {
+      $skipped++
+    }
+  }
+  
+  # Вставляем новые ключи ПЕРЕД "Примеры кастомизации"
+  if ($additions.Count -gt 0) {
+    $tempContent = Get-Content $tempConfig -Raw
+    $marker = "# Примеры кастомизации под специфичные проекты"
+    
+    if ($tempContent -like "*$marker*") {
+      $additionsText = $additions -join "`n"
+      $tempContent = $tempContent.Replace($marker, "$additionsText`n`n$marker")
+      $tempContent | Out-File $tempConfig -Encoding UTF8 -NoNewline
+    } else {
+      # Fallback: в конец
+      $additions | Out-File $tempConfig -Append -Encoding UTF8
+    }
+  }
+  
+  # Специальная обработка RULES_ENABLED
+  $userRules = Get-ConfigValue -ConfigPath $userConfig -Key "RULES_ENABLED" -Default ""
+  
+  if ($userRules -eq $defaultsV20) {
+    # На старом дефолте → обновляем
+    $tempContent = Get-Content $tempConfig -Raw
+    $tempContent = $tempContent -replace "(?m)^RULES_ENABLED=.*", "RULES_ENABLED=$defaultsV21"
+    $tempContent | Out-File $tempConfig -Encoding UTF8 -NoNewline
+    Write-Success "✓ RULES_ENABLED обновлён: $defaultsV21"
+  } elseif ($userRules -eq "") {
+    # Пусто (добавлен выше)
+  } else {
+    # Кастомизирован → не трогаем
+    Write-Warning "⚠ RULES_ENABLED не обновлён (кастомизирован: $userRules)"
+    Write-Info "  Новые правила: structure (добавьте вручную если нужно)"
+  }
+  
+  # Применяем
+  Move-Item $tempConfig $userConfig -Force
+  
+  Write-Success "Merge завершён: +$added новых, ~$skipped существующих"
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Основная логика
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -201,7 +446,9 @@ if ($Mode -eq "install") {
     $owner = (git -C $Target config user.name 2>$null)
     if (-not $owner) { $owner = $env:USERNAME }
     if ($owner) {
-      (Get-Content $configDst -Raw) -replace '@Pixasso', "@$owner" | Set-Content $configDst -NoNewline
+      $content = Get-Content $configDst -Raw
+      $content = $content.Replace('@Pixasso', "@$owner")
+      $content | Set-Content $configDst -NoNewline
       Write-Success "config.env создан (owner: @$owner)"
     } else {
       Write-Success "config.env создан"
@@ -226,40 +473,16 @@ if ($Mode -eq "install") {
     $owner = (git -C $Target config user.name 2>$null)
     if (-not $owner) { $owner = $env:USERNAME }
     if ($owner) {
-      (Get-Content $configDst -Raw) -replace '@Pixasso', "@$owner" | Set-Content $configDst -NoNewline
+      $content = Get-Content $configDst -Raw
+      $content = $content.Replace('@Pixasso', "@$owner")
+      $content | Set-Content $configDst -NoNewline
       Write-Success "config.env создан (миграция с v1, owner: @$owner)"
     } else {
       Write-Success "config.env создан (миграция с v1)"
     }
   } else {
-    # Конфиг есть — мерджим новые ключи (упрощенная версия)
-    Write-Step "Merge конфига (добавление новых ключей)..."
-    $defaultConfig = Get-Content $configSrc
-    $userConfig = Get-Content $configDst
-    $userKeys = $userConfig | Where-Object { $_ -match '^[A-Z_]+='}' | ForEach-Object { ($_ -split '=')[0] }
-    
-    $added = 0
-    $newLines = @()
-    foreach ($line in $defaultConfig) {
-      if ($line -match '^([A-Z_]+)=') {
-        $key = $matches[1]
-        if ($userKeys -notcontains $key) {
-          $newLines += $line
-          $added++
-          Write-Info "+ $key"
-        }
-      }
-    }
-    
-    if ($added -gt 0) {
-      # Добавляем новые ключи в конец
-      Add-Content -Path $configDst -Value ""
-      Add-Content -Path $configDst -Value "# ─── Добавлено при обновлении ───────────────────────────────"
-      Add-Content -Path $configDst -Value $newLines
-      Write-Success "Добавлено $added новых ключей"
-    } else {
-      Write-Success "Конфиг актуален"
-    }
+    # Конфиг есть — мерджим новые ключи
+    Merge-Config -TargetPath $Target
   }
   
   Copy-Item -Force (Join-Path $ScriptDir ".ai-docs-system\rules\*") $rulesDir -ErrorAction SilentlyContinue
@@ -273,15 +496,7 @@ Build-Instructions -TargetPath $Target
 
 # ─── 3. Установка хуков ─────────────────────────────────────────────────────────
 Write-Step "Установка git-хуков..."
-
-$hooksDir = Join-Path $Target ".githooks"
-New-Item -Force -ItemType Directory $hooksDir | Out-Null
-
-Copy-Item -Force (Join-Path $ScriptDir "githooks\pre-commit") (Join-Path $hooksDir "pre-commit")
-Copy-Item -Force (Join-Path $ScriptDir "githooks\pre-commit.cmd") (Join-Path $hooksDir "pre-commit.cmd")
-
-git -C $Target config core.hooksPath .githooks
-Write-Success "Хуки установлены в .githooks/"
+Setup-Hooks -TargetPath $Target
 
 # ─── 4. Генерация адаптеров ─────────────────────────────────────────────────────
 Write-Step "Генерация адаптеров для AI..."

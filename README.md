@@ -96,7 +96,7 @@ git pull
 CODE_DIRS=src,app,lib,packages,services
 
 # Какие расширения — код
-CODE_EXTS=ts,tsx,js,jsx,py,go,rs,java
+CODE_EXTS=ts,tsx,js,jsx,py,go,rs,java,php
 
 # Где лежит документация
 DOC_DIRS=docs

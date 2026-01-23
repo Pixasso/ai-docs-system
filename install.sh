@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.2.0"
+VERSION="2.3.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -44,6 +44,15 @@ set_config_value() {
     # Добавляем новый ключ
     echo "${key}=${value}" >> "$file"
   fi
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Экранирование для sed replacement (безопасная подстановка)
+# ═══════════════════════════════════════════════════════════════════════════════
+escape_sed_replacement() {
+  local str="$1"
+  # Экранируем \ → \\, затем & → \&, затем / → \/
+  printf '%s' "$str" | sed 's/\\/\\\\/g; s/&/\\&/g; s/\//\\\//g'
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -181,7 +190,28 @@ setup_hooks() {
   # Определяем режим: managed или integrate
   local actual_mode="$hooks_mode"
   if [[ "$hooks_mode" == "auto" ]]; then
-    if [[ -z "$current_hooks_path" || "$current_hooks_path" == ".githooks" ]]; then
+    # Проверяем существующие хуки ПЕРЕД автоматическим переключением
+    local has_existing_hooks=false
+    
+    # 1. Проверка .githooks/ на наличие файлов
+    if [[ -d "$target/.githooks" ]] && ls "$target/.githooks/"* >/dev/null 2>&1; then
+      has_existing_hooks=true
+      log_warn "⚠ Обнаружены существующие хуки в .githooks/"
+    fi
+    
+    # 2. Проверка .git/hooks/ (если core.hooksPath пуст → активна .git/hooks/)
+    if [[ -z "$current_hooks_path" ]]; then
+      if ls "$target/.git/hooks/"pre-* "$target/.git/hooks/"post-* "$target/.git/hooks/"commit-msg 2>/dev/null | grep -v ".sample" >/dev/null; then
+        has_existing_hooks=true
+        log_warn "⚠ Обнаружены существующие хуки в .git/hooks/"
+      fi
+    fi
+    
+    if [[ "$has_existing_hooks" == true ]]; then
+      # Автоматически переключаемся на integrate (безопасный режим)
+      actual_mode="integrate"
+      log_warn "→ Автоматический режим: integrate (безопасная интеграция)"
+    elif [[ -z "$current_hooks_path" || "$current_hooks_path" == ".githooks" ]]; then
       actual_mode="managed"
     else
       actual_mode="integrate"
@@ -198,12 +228,25 @@ setup_hooks() {
     
     # Устанавливаем хуки
     mkdir -p "$target/.githooks"
+    
+    # Проверка на существующий pre-commit (бэкап если не наш)
+    if [[ -f "$target/.githooks/pre-commit" ]]; then
+      if ! grep -q "# AI Docs System" "$target/.githooks/pre-commit" 2>/dev/null; then
+        # Не наш хук → создаём бэкап
+        mv "$target/.githooks/pre-commit" "$target/.githooks/pre-commit.bak.$(date +%s)"
+        log_warn "⚠ Существующий pre-commit переименован в .bak"
+      fi
+    fi
+    
     cp -f "$SCRIPT_DIR/githooks/pre-commit" "$target/.githooks/pre-commit"
     chmod +x "$target/.githooks/pre-commit"
     
     if [[ -f "$SCRIPT_DIR/githooks/pre-commit.cmd" ]]; then
       cp -f "$SCRIPT_DIR/githooks/pre-commit.cmd" "$target/.githooks/pre-commit.cmd"
     fi
+    
+    # Создаём маркер-файл (для безопасного удаления при uninstall)
+    touch "$target/.githooks/.ai-docs-system-managed"
     
     git -C "$target" config core.hooksPath .githooks
     log_info "Хуки установлены в .githooks/ (managed режим)"
@@ -399,9 +442,19 @@ audit_project() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
+  # Определяем абсолютный путь для local queue
+  local queue_path
+  if [[ "$pending_local" == /* ]]; then
+    # Абсолютный путь → используем как есть
+    queue_path="$pending_local"
+  else
+    # Относительный путь → добавляем $target
+    queue_path="$target/$pending_local"
+  fi
+  
   # Local queue
-  if [[ -f "$target/$pending_local" ]]; then
-    pending_count=$(wc -l < "$target/$pending_local" | xargs)
+  if [[ -f "$queue_path" ]]; then
+    pending_count=$(wc -l < "$queue_path" | xargs)
     if [[ $pending_count -gt 0 ]]; then
       echo "  ⏳ $pending_count необработанных обновления:"
       echo ""
@@ -434,7 +487,7 @@ audit_project() {
         
         echo ""
         ((idx++))
-      done < "$target/$pending_local"
+      done < "$queue_path"
       
       echo "  💡 Запустите: Cursor Agent → \"==\""
       echo ""
@@ -448,12 +501,22 @@ audit_project() {
   fi
   
   # Shared queue (если есть)
-  if [[ -n "$pending_shared" && -f "$target/$pending_shared" ]]; then
-    local shared_count
-    shared_count=$(wc -l < "$target/$pending_shared" | xargs)
-    if [[ $shared_count -gt 0 ]]; then
+  if [[ -n "$pending_shared" ]]; then
+    # Определяем абсолютный путь для shared queue
+    local shared_path
+    if [[ "$pending_shared" == /* ]]; then
+      shared_path="$pending_shared"
+    else
+      shared_path="$target/$pending_shared"
+    fi
+    
+    if [[ -f "$shared_path" ]]; then
+      local shared_count
+      shared_count=$(wc -l < "$shared_path" | xargs)
+      if [[ $shared_count -gt 0 ]]; then
       echo "  ⏳ $shared_count в shared очереди"
       ((pending_count += shared_count))
+    fi
     fi
   fi
   
@@ -482,11 +545,13 @@ audit_project() {
     [[ -d "$target/$dir" ]] && code_pattern="$code_pattern -o -path $target/$dir/*"
   done
   
+  
   local prune_pattern=""
   IFS=',' read -ra ignore_arr <<< "$ignore_dirs"
   for idir in "${ignore_arr[@]}"; do
     idir=$(echo "$idir" | xargs)
-    prune_pattern="$prune_pattern -o -path $target/$idir"
+    # Используем -name для матчинга на ЛЮБОМ уровне вложенности
+    prune_pattern="$prune_pattern -o -name $idir"
   done
   prune_pattern="${prune_pattern:4}"
   
@@ -682,10 +747,26 @@ echo ""
     log_info "Сброшен git hooksPath"
   fi
   
-  # 2. Удаление .githooks (если managed)
-  if [[ -d "$TARGET/.githooks" ]]; then
+  # 2. Удаление .githooks (только если managed режим)
+  if [[ -f "$TARGET/.githooks/.ai-docs-system-managed" ]]; then
+    # Маркер есть → мы создали эту папку, можно удалить
     rm -rf "$TARGET/.githooks"
-    log_info "Удалена папка .githooks/"
+    log_info "Удалена папка .githooks/ (managed режим)"
+  elif [[ -d "$TARGET/.githooks" ]]; then
+    # Маркера нет → возможно была до нас, удаляем только наши файлы
+    if [[ -f "$TARGET/.githooks/pre-commit" ]]; then
+      if grep -q "# AI Docs System" "$TARGET/.githooks/pre-commit" 2>/dev/null; then
+        rm -f "$TARGET/.githooks/pre-commit"
+        rm -f "$TARGET/.githooks/pre-commit.cmd"
+        log_info "Удалён pre-commit (другие хуки сохранены)"
+      fi
+    fi
+  fi
+  
+  # 2a. Удаление для integrate режима
+  if [[ -d "$TARGET/.ai-docs-system/hooks" ]]; then
+    rm -rf "$TARGET/.ai-docs-system/hooks"
+    log_info "Удалена папка .ai-docs-system/hooks/ (integrate режим)"
   fi
   
   # 3. Удаление блоков из AI-файлов
@@ -745,8 +826,10 @@ if [[ "$MODE" == "install" ]]; then
     # Подставляем владельца из git config
     owner="$(git -C "$TARGET" config user.name 2>/dev/null || id -un 2>/dev/null || echo "unknown")"
     if [[ -n "$owner" ]]; then
-      sed -i.bak "s/@Pixasso/@$owner/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || \
-        sed -i '' "s/@Pixasso/@$owner/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || true
+      local owner_escaped
+      owner_escaped=$(escape_sed_replacement "$owner")
+      sed -i.bak "s/@Pixasso/@$owner_escaped/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || \
+        sed -i '' "s/@Pixasso/@$owner_escaped/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || true
       rm -f "$TARGET/.ai-docs-system/config.env.bak"
       log_info "config.env создан (owner: @$owner)"
     else
@@ -776,8 +859,10 @@ else
     cp "$SCRIPT_DIR/.ai-docs-system/config.env" "$TARGET/.ai-docs-system/config.env"
     owner="$(git -C "$TARGET" config user.name 2>/dev/null || id -un 2>/dev/null || echo "unknown")"
     if [[ -n "$owner" ]]; then
-      sed -i.bak "s/@Pixasso/@$owner/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || \
-        sed -i '' "s/@Pixasso/@$owner/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || true
+      local owner_escaped
+      owner_escaped=$(escape_sed_replacement "$owner")
+      sed -i.bak "s/@Pixasso/@$owner_escaped/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || \
+        sed -i '' "s/@Pixasso/@$owner_escaped/g" "$TARGET/.ai-docs-system/config.env" 2>/dev/null || true
       rm -f "$TARGET/.ai-docs-system/config.env.bak"
     fi
     log_info "config.env создан (миграция с v1, owner: @${owner:-unknown})"

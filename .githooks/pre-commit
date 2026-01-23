@@ -88,9 +88,11 @@ while IFS= read -r -d '' file; do
   # Проверяем на код (исключая игнорируемое)
   elif echo "$file" | grep -Evq "$IGNORE_RE" && echo "$file" | grep -Eq "$CODE_RE"; then
     changed_code="yes"
-    changed_code_arr+=("$file")
-    # Ограничиваем 10 файлами для вывода
-    [[ ${#changed_code_arr[@]} -ge 10 ]] && break
+    # Добавляем в массив только первые 10 для вывода
+    if [[ ${#changed_code_arr[@]} -lt 10 ]]; then
+      changed_code_arr+=("$file")
+    fi
+    # НЕ прерываем цикл — продолжаем искать changed_docs
   fi
 done < <(git diff --cached --name-only -z --diff-filter=ACMR 2>/dev/null)
 
@@ -183,7 +185,47 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
         echo "$entry" >> "$pending_local" 2>/dev/null
       fi
       
-      echo "📝 Запись в pending updates для следующего \"==\""
+      echo "📝 Запись в pending updates (local) для следующего \"==\""
+    fi
+    
+    # Запись в shared очередь (если настроено)
+    if [[ "$pending_write" == "shared" || "$pending_write" == "both" ]]; then
+      pending_shared="$(get_config_value "$config" "PENDING_UPDATES_SHARED" "")"
+      
+      if [[ -n "$pending_shared" ]]; then
+        # Определяем абсолютный путь для shared
+        local shared_path
+        if [[ "$pending_shared" == /* ]]; then
+          # Абсолютный путь
+          shared_path="$pending_shared"
+        else
+          # Относительный путь от repo root
+          shared_path="$repo_root/$pending_shared"
+        fi
+        
+        # Создаём папку для shared очереди
+        mkdir -p "$(dirname "$shared_path")" 2>/dev/null
+        
+        # Используем те же переменные ts, kind, ref, files_tab, doc_hint, note, has_bad_chars
+        if [[ "$has_bad_chars" == true ]]; then
+          # .queue0 для shared
+          local shared_queue0="${shared_path%.queue}.queue0"
+          {
+            printf '%s\0%s\0%s\0' "$ts" "$kind" "$ref"
+            for f in "${changed_code_arr[@]}"; do
+              printf '%s\0' "$f"
+            done
+            printf '\0%s\0%s\0\0' "$doc_hint" "$note"
+          } >> "$shared_queue0" 2>/dev/null
+        else
+          # Обычная запись (используем уже подготовленный entry)
+          echo "$entry" >> "$shared_path" 2>/dev/null
+        fi
+        
+        echo "📝 Запись в pending updates (shared) → $pending_shared"
+      else
+        log_warn "⚠ PENDING_UPDATES_WRITE=$pending_write, но PENDING_UPDATES_SHARED пуст"
+      fi
     fi
   fi
   

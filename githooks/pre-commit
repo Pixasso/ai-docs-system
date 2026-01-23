@@ -146,7 +146,6 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
       
       # ─── Вычисляем общие переменные (ДО ветвления local/shared) ───────────
       ts=$(date +%s)
-      kind="code"
       ref="commit"
       note="pre-commit"
       
@@ -202,6 +201,13 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
       fi
       
       [[ -z "$doc_hint" ]] && doc_hint="docs/"
+      
+      # kind по типу изменений (для pending-updates семантики)
+      case "$doc_hint" in
+        "docs/infrastructure/") kind="infra" ;;
+        "docs/architecture/")   kind="schema" ;;
+        *)                      kind="code" ;;
+      esac
       
       # Формируем entry для обычной записи
       entry="${ts}|${kind}|${ref}|${files_tab}|${doc_hint}|${note}"

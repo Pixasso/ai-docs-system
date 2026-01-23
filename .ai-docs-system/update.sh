@@ -4,7 +4,7 @@
 # Обновляет систему прямо из проекта
 #
 
-VERSION="2.3.13"
+VERSION="2.3.14"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ВАЖНО: Self-copy для безопасного обновления
@@ -82,6 +82,9 @@ trap "rm -rf $tmp_dir" EXIT
 
 log_step "Скачиваем версию: $UPDATE_REF..."
 
+# curl с retry для надёжности сети
+curl_opts=(-fsSL --retry 3 --retry-delay 2 --retry-connrefused)
+
 # Формируем URL для скачивания (поддержка веток и тегов)
 # Если UPDATE_REF выглядит как semver без v (например "2.3.9"), пробуем сначала как тег v2.3.9
 download_success=false
@@ -89,26 +92,26 @@ download_success=false
 if [[ "$UPDATE_REF" == v* ]]; then
   # Явный тег (v2.3.5)
   archive_url="https://github.com/Pixasso/ai-docs-system/archive/refs/tags/${UPDATE_REF}.tar.gz"
-  if curl -fsSL "$archive_url" -o "$tmp_dir/repo.tar.gz" 2>/dev/null; then
+  if curl "${curl_opts[@]}" "$archive_url" -o "$tmp_dir/repo.tar.gz" 2>/dev/null; then
     download_success=true
   fi
 elif [[ "$UPDATE_REF" =~ ^[0-9]+\.[0-9]+ ]]; then
   # Похоже на semver без v (2.3.9) — пробуем как тег v$REF
   archive_url="https://github.com/Pixasso/ai-docs-system/archive/refs/tags/v${UPDATE_REF}.tar.gz"
-  if curl -fsSL "$archive_url" -o "$tmp_dir/repo.tar.gz" 2>/dev/null; then
+  if curl "${curl_opts[@]}" "$archive_url" -o "$tmp_dir/repo.tar.gz" 2>/dev/null; then
     log_info "Использую тег: v$UPDATE_REF"
     download_success=true
   else
     # Fallback: пробуем как ветку
     archive_url="https://github.com/Pixasso/ai-docs-system/archive/refs/heads/${UPDATE_REF}.tar.gz"
-    if curl -fsSL "$archive_url" -o "$tmp_dir/repo.tar.gz" 2>/dev/null; then
+    if curl "${curl_opts[@]}" "$archive_url" -o "$tmp_dir/repo.tar.gz" 2>/dev/null; then
       download_success=true
     fi
   fi
 else
   # Ветка (main, develop)
   archive_url="https://github.com/Pixasso/ai-docs-system/archive/refs/heads/${UPDATE_REF}.tar.gz"
-  if curl -fsSL "$archive_url" -o "$tmp_dir/repo.tar.gz" 2>/dev/null; then
+  if curl "${curl_opts[@]}" "$archive_url" -o "$tmp_dir/repo.tar.gz" 2>/dev/null; then
     download_success=true
   fi
 fi

@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.3.13"
+VERSION="2.3.14"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -566,14 +566,13 @@ audit_project() {
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
-  # Строим code_args через массив (для корректной передачи в find)
-  local code_args=()
+  # Строим список корней кода (быстрый find — только по CODE_DIRS)
+  local code_roots=()
   IFS=',' read -ra code_arr <<< "$code_dirs"
   for dir in "${code_arr[@]}"; do
     dir=$(echo "$dir" | xargs)
-    [[ -n "$dir" && -d "$target/$dir" ]] && code_args+=("-path" "$target/$dir/*" "-o")
+    [[ -n "$dir" && -d "$target/$dir" ]] && code_roots+=("$target/$dir")
   done
-  [[ ${#code_args[@]} -gt 0 ]] && unset 'code_args[-1]'  # Убираем последний "-o"
   
   # Строим prune для ignore_dirs (через массив для безопасности)
   local prune_args=()
@@ -584,7 +583,7 @@ audit_project() {
   done
   [[ ${#prune_args[@]} -gt 0 ]] && unset 'prune_args[-1]'  # Убираем последний "-o"
   
-  if [[ ${#code_args[@]} -gt 0 ]]; then
+  if [[ ${#code_roots[@]} -gt 0 ]]; then
     # Строим ext_args через массив
     local ext_args=()
     IFS=',' read -ra ext_arr <<< "$doc_exts"
@@ -594,16 +593,15 @@ audit_project() {
     done
     [[ ${#ext_args[@]} -gt 0 ]] && unset 'ext_args[-1]'  # Убираем последний "-o"
     
-    # Строим find команду через массивы
-    local find_args=("$target")
+    # Строим find команду — ищем только в code_roots (быстрее чем весь репо)
+    local find_args=("${code_roots[@]}")
     
     # Добавляем prune
     if [[ ${#prune_args[@]} -gt 0 ]]; then
       find_args+=("(" "${prune_args[@]}" ")" "-prune" "-o")
     fi
     
-    # Добавляем code_args (правильно через массив)
-    find_args+=("(" "${code_args[@]}" ")")
+    # code_roots уже ограничивают область поиска
     find_args+=("-type" "f")
     
     # Добавляем ext_args

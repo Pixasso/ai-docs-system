@@ -4,7 +4,7 @@
 # Обновляет систему прямо из проекта
 #
 
-VERSION="2.3.8"
+VERSION="2.3.9"
 
 set -euo pipefail
 
@@ -46,6 +46,8 @@ get_config_value() {
 }
 
 UPDATE_REF="${UPDATE_REF:-$(get_config_value "UPDATE_REF" "main")}"
+UPDATE_REF="$(echo "$UPDATE_REF" | xargs)"  # trim пробелов
+[[ -z "$UPDATE_REF" ]] && UPDATE_REF="main"
 
 echo ""
 echo "╔═══════════════════════════════════════════════════════════════╗"

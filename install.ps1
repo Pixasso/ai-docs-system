@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Version = "2.3.8"
+$Version = "2.3.9"
 $ScriptDir = $PSScriptRoot
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -90,7 +90,7 @@ function Generate-CursorRules {
   
   $block = @"
 # BEGIN ai-docs-system
-# AI Docs System v2.3.8 — https://github.com/Pixasso/ai-docs-system
+# AI Docs System v2.3.9 — https://github.com/Pixasso/ai-docs-system
 # НЕ редактируйте этот блок. Запустите install.ps1 -Mode update для обновления.
 
 Прочитай и следуй инструкциям из ``.ai-docs-system/instructions.md``
@@ -463,6 +463,13 @@ if ($LASTEXITCODE -ne 0) {
   Write-Err "Не git-репозиторий: $Target"
   Write-Host "Инициализируйте командой: git init"
   exit 1
+}
+
+# Нормализуем Target до корня репозитория
+$repoRoot = (git -C $Target rev-parse --show-toplevel 2>$null)
+if ($repoRoot -and $repoRoot -ne $Target) {
+  Write-Warn "TARGET не корень репозитория, использую: $repoRoot"
+  $Target = $repoRoot
 }
 
 Write-Host ""

@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.3.8"
+VERSION="2.3.9"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -764,6 +764,13 @@ if ! git -C "$TARGET" rev-parse --git-dir >/dev/null 2>&1; then
   log_error "Не git-репозиторий: $TARGET"
   echo "Инициализируйте командой: git init"
   exit 1
+fi
+
+# Нормализуем TARGET до корня репозитория
+repo_root="$(git -C "$TARGET" rev-parse --show-toplevel 2>/dev/null || echo "")"
+if [[ -n "$repo_root" && "$repo_root" != "$TARGET" ]]; then
+  log_warn "TARGET не корень репозитория, использую: $repo_root"
+  TARGET="$repo_root"
 fi
 
 # Проверка режима

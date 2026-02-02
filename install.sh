@@ -347,10 +347,10 @@ merge_config() {
         echo "${key}=${default_value}"
       } >> "$temp_config.additions"
       
-      ((added++))
+      added=$((added + 1))
       log_info "+ $key=${default_value}"
     else
-      ((skipped++))
+      skipped=$((skipped + 1))
     fi
   done
   
@@ -675,6 +675,12 @@ generate_cursor_rules() {
 
 Прочитай и следуй инструкциям из \`.ai-docs-system/instructions.md\`
 Конфигурация проекта: \`.ai-docs-system/config.env\`
+
+## Pending Updates (КРИТИЧНО для Cursor Agent)
+При изменении кода (CODE_DIRS) БЕЗ git commit:
+1. Запиши: echo \"\$(date +%s)|kind|cursor|files|doc_hint|note\" >> .ai-docs-system/state/pending-updates.queue
+2. kind: code|schema|infra (по маппингу из config.env)
+3. Напомни: \"📝 Изменения записаны. 💡 Запусти '==' для обновления docs\"
 
 $end_marker"
   

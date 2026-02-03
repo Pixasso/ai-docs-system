@@ -1,7 +1,7 @@
 # Архитектура
 
 > **Status:** draft  
-> **Last verified:** YYYY-MM-DD  
+> **Last verified:** 2026-02-03  
 > **Owner:** @Pixasso
 
 Документация по архитектуре системы.
@@ -20,7 +20,7 @@
 # Название компонента
 
 > **Status:** current  
-> **Last verified:** YYYY-MM-DD  
+> **Last verified:** 2026-02-03  
 > **Owner:** @Pixasso
 
 ## Обзор

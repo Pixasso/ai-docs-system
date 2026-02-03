@@ -1,7 +1,7 @@
 # Инфраструктура
 
 > **Status:** draft  
-> **Last verified:** YYYY-MM-DD  
+> **Last verified:** 2026-02-03  
 > **Owner:** @Pixasso
 
 Документация по серверам, развёртыванию и DevOps.
@@ -25,7 +25,7 @@ infrastructure/
 # Название сервера/окружения
 
 > **Status:** current  
-> **Last verified:** YYYY-MM-DD  
+> **Last verified:** 2026-02-03  
 > **Owner:** @Pixasso
 
 ## Обзор

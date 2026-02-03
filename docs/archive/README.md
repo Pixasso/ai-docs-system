@@ -1,7 +1,7 @@
 # Архив
 
 > **Status:** current  
-> **Last verified:** YYYY-MM-DD  
+> **Last verified:** 2026-02-03  
 > **Owner:** @Pixasso
 
 Устаревшая документация, исторические заметки и выполненные планы.

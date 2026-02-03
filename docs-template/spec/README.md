@@ -1,8 +1,8 @@
 # Исполнимые спецификации
 
 > **Status:** draft  
-> **Last verified:** YYYY-MM-DD HH:MM  
-> **Owner:** @username
+> **Last verified:** 2026-02-03 12:00  
+> **Owner:** @Pixasso
 
 Детальные спецификации для реализации планов из `docs/plans/`.
 
@@ -20,8 +20,8 @@ Execution spec: docs/spec/<имя-спецификации>.md
 # Spec: [Название]
 
 > **Status:** draft | ready | implemented  
-> **Last verified:** YYYY-MM-DD HH:MM  
-> **Owner:** @username
+> **Last verified:** 2026-02-03 12:00  
+> **Owner:** @Pixasso
 
 Связанный план: docs/plans/<plan-name>.md
 

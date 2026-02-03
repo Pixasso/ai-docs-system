@@ -1,7 +1,7 @@
 # Architecture Decision Records (ADR)
 
 > **Status:** current  
-> **Last verified:** YYYY-MM-DD  
+> **Last verified:** 2026-02-03  
 > **Owner:** @Pixasso
 
 Задокументированные архитектурные решения для проекта.

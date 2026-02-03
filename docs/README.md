@@ -1,7 +1,7 @@
 # Документация
 
 > **Status:** current  
-> **Last verified:** YYYY-MM-DD  
+> **Last verified:** 2026-02-03  
 > **Owner:** @Pixasso
 
 ---
@@ -16,6 +16,9 @@
 
 ### [infrastructure/](./infrastructure/) — Инфраструктура
 Серверы, развёртывание, DevOps, секреты.
+
+### [spec/](./spec/) — Спецификации задач
+Связь планов и реализации, чеклисты выполнения.
 
 ### [plans/](./plans/) — Планы и идеи
 Дорожная карта, нереализованные функции, исследования.
@@ -45,7 +48,7 @@
 
 ```markdown
 > **Status:** current | draft | legacy  
-> **Last verified:** YYYY-MM-DD  
+> **Last verified:** 2026-02-03  
 > **Owner:** @Pixasso
 ```
 

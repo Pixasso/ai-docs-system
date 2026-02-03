@@ -1,7 +1,7 @@
 # Функциональность
 
 > **Status:** draft  
-> **Last verified:** YYYY-MM-DD  
+> **Last verified:** 2026-02-03  
 > **Owner:** @Pixasso
 
 Документация по функциональности для конечных пользователей и разработчиков.
@@ -28,7 +28,7 @@ features/
 # Название функции
 
 > **Status:** current  
-> **Last verified:** YYYY-MM-DD  
+> **Last verified:** 2026-02-03  
 > **Owner:** @Pixasso
 
 ## Обзор

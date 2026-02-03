@@ -1,7 +1,7 @@
 # Планы и идеи
 
 > **Status:** draft  
-> **Last verified:** YYYY-MM-DD  
+> **Last verified:** 2026-02-03  
 > **Owner:** @Pixasso
 
 Дорожная карта, нереализованные функции и исследовательские заметки.

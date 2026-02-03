@@ -305,7 +305,7 @@ if [[ ${#changed_plans[@]} -gt 0 ]]; then
         echo "     → Нет ссылки на спецификацию"
         echo "     💡 Добавь: Execution spec: docs/spec/<имя>.md"
         echo ""
-        ((spec_warnings++))
+        spec_warnings=$((spec_warnings + 1))
       else
         spec_path=$(echo "$spec_line" | sed 's/^Execution spec:[[:space:]]*//')
         if [[ ! -f "$spec_path" ]]; then
@@ -320,7 +320,7 @@ if [[ ${#changed_plans[@]} -gt 0 ]]; then
           echo "     → Spec не найден: $spec_path"
           echo "     💡 Создай файл или исправь путь"
           echo ""
-          ((spec_warnings++))
+          spec_warnings=$((spec_warnings + 1))
         fi
       fi
     fi

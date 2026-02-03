@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.5.0"
+VERSION="2.5.2"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -514,7 +514,7 @@ audit_project() {
         [[ -n "$doc" ]] && echo "     → $doc"
         
         echo ""
-        ((idx++))
+        idx=$((idx + 1))
       done < "$queue_path"
       
       echo "  💡 Запустите: Cursor Agent → \"==\""
@@ -554,7 +554,7 @@ audit_project() {
   # Проверяем .queue0 рядом с локальной очередью
   if [[ "$queue_path" == *.queue ]]; then
     local queue0_local="${queue_path%.queue}.queue0"
-    [[ -f "$queue0_local" ]] && ((queue0_count++))
+    queue0_count=$((queue0_count + 1))
   fi
   
   # Проверяем .queue0 рядом с shared очередью
@@ -563,7 +563,7 @@ audit_project() {
     [[ "$pending_shared" == /* ]] && shared_queue_path="$pending_shared" || shared_queue_path="$target/$pending_shared"
     if [[ "$shared_queue_path" == *.queue ]]; then
       local queue0_shared="${shared_queue_path%.queue}.queue0"
-      [[ -f "$queue0_shared" ]] && ((queue0_count++))
+      queue0_count=$((queue0_count + 1))
     fi
   fi
   
@@ -627,7 +627,7 @@ audit_project() {
     
     readme_count=0
     while IFS= read -r -d '' f; do
-      ((readme_count++))
+      readme_count=$((readme_count + 1))
       local rel_path="${f#$target/}"
       echo "  ⚠ $rel_path"
       echo "     → Переместить в: docs/"
@@ -672,7 +672,7 @@ audit_project() {
         echo "     → Нет ссылки на спецификацию"
         echo "     💡 Добавь: Execution spec: docs/spec/<имя>.md"
         echo ""
-        ((spec_issues++))
+        spec_issues=$((spec_issues + 1))
       else
         # Извлекаем путь к spec
         local spec_path
@@ -684,7 +684,7 @@ audit_project() {
           echo "     → Spec не найден: $spec_path"
           echo "     💡 Создай файл или исправь путь"
           echo ""
-          ((spec_issues++))
+          spec_issues=$((spec_issues + 1))
         else
           echo "  ✓ $rel_plan → $spec_path"
         fi

@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 
 const SCRIPT_DIR = path.join(__dirname, '..');
-const VERSION = '2.5.0';
+const VERSION = '2.5.2';
 
 // Определяем ОС
 const isWindows = process.platform === 'win32';

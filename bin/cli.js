@@ -35,7 +35,7 @@ AI Docs System v${VERSION}
 Универсальная модульная система автоматизации документации
 
 Использование:
-  npx @pixasso/ai-docs-system <команда> [опции]
+  npx ai-docs-system <команда> [опции]
 
 Команды:
   install <путь>     Установить в проект (по умолчанию: текущая директория)
@@ -45,9 +45,9 @@ AI Docs System v${VERSION}
   version            Показать версию
 
 Примеры:
-  npx @pixasso/ai-docs-system install .
-  npx @pixasso/ai-docs-system update /path/to/project
-  npx @pixasso/ai-docs-system audit .
+  npx ai-docs-system install .
+  npx ai-docs-system update /path/to/project
+  npx ai-docs-system audit .
 
 Альтернативный способ (bash):
   ./install.sh /path/to/project install
@@ -143,6 +143,6 @@ switch (command) {
 
   default:
     log(`✗ Неизвестная команда: ${command}`, 'red');
-    log('💡 Запустите: npx @pixasso/ai-docs-system help', 'yellow');
+    log('💡 Запустите: npx ai-docs-system help', 'yellow');
     process.exit(1);
 }

@@ -1,5 +1,5 @@
 {
-  "name": "@pixasso/ai-docs-system",
+  "name": "ai-docs-system",
   "version": "2.4.4",
   "description": "Универсальная модульная система автоматизации документации для проектов с AI-ассистентами",
   "main": "bin/cli.js",

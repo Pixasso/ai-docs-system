@@ -16,16 +16,16 @@
 
 ```bash
 # Установить в текущий проект
-npx @pixasso/ai-docs-system install .
+npx ai-docs-system install .
 
 # Или в конкретный проект
-npx @pixasso/ai-docs-system install /path/to/your/project
+npx ai-docs-system install /path/to/your/project
 
 # Обновить систему
-npx @pixasso/ai-docs-system update .
+npx ai-docs-system update .
 
 # Проверить здоровье документации
-npx @pixasso/ai-docs-system audit .
+npx ai-docs-system audit .
 ```
 
 ### Через bash (альтернатива)
@@ -63,7 +63,7 @@ cd ai-docs-system
 ### Способ 1: Через npm (⭐ рекомендуется)
 
 ```bash
-npx @pixasso/ai-docs-system update .
+npx ai-docs-system update .
 ```
 
 ### Способ 2: Прямо из проекта (v2.2+)

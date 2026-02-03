@@ -5,7 +5,7 @@
 #
 set -euo pipefail
 
-VERSION="2.4.4"
+VERSION="2.5.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -645,6 +645,71 @@ audit_project() {
   
   ((total_issues += readme_count))
   
+  # ─── 3. Plan ↔ Spec связка ────────────────────────────────────────────────────
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📋 Планы и спецификации"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  
+  local plans_dir="$target/docs/plans"
+  local spec_issues=0
+  
+  if [[ -d "$plans_dir" ]]; then
+    # Ищем все .md файлы кроме README.md
+    while IFS= read -r -d '' plan_file; do
+      local plan_name
+      plan_name=$(basename "$plan_file")
+      [[ "$plan_name" == "README.md" ]] && continue
+      
+      local rel_plan="${plan_file#$target/}"
+      
+      # Ищем строку "Execution spec:" в файле
+      local spec_line
+      spec_line=$(grep -E "^Execution spec:" "$plan_file" 2>/dev/null | head -1)
+      
+      if [[ -z "$spec_line" ]]; then
+        echo "  ⚠ $rel_plan"
+        echo "     → Нет ссылки на спецификацию"
+        echo "     💡 Добавь: Execution spec: docs/spec/<имя>.md"
+        echo ""
+        ((spec_issues++))
+      else
+        # Извлекаем путь к spec
+        local spec_path
+        spec_path=$(echo "$spec_line" | sed 's/^Execution spec:[[:space:]]*//')
+        
+        # Проверяем существование spec файла
+        if [[ ! -f "$target/$spec_path" ]]; then
+          echo "  ⚠ $rel_plan"
+          echo "     → Spec не найден: $spec_path"
+          echo "     💡 Создай файл или исправь путь"
+          echo ""
+          ((spec_issues++))
+        else
+          echo "  ✓ $rel_plan → $spec_path"
+        fi
+      fi
+    done < <(find "$plans_dir" -maxdepth 1 -name "*.md" -type f -print0 2>/dev/null)
+    
+    if [[ $spec_issues -eq 0 ]]; then
+      # Проверяем есть ли вообще планы (кроме README)
+      local plan_count
+      plan_count=$(find "$plans_dir" -maxdepth 1 -name "*.md" -type f ! -name "README.md" 2>/dev/null | wc -l | xargs)
+      if [[ $plan_count -eq 0 ]]; then
+        echo "  ✓ Планов пока нет (docs/plans/ пуст)"
+      else
+        echo ""
+        echo "  ✓ Все планы имеют спецификации"
+      fi
+      echo ""
+    fi
+  else
+    echo "  ℹ docs/plans/ не найден — проверка пропущена"
+    echo ""
+  fi
+  
+  ((total_issues += spec_issues))
+  
   # ─── Итого ──────────────────────────────────────────────────────────────────
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
@@ -654,7 +719,8 @@ audit_project() {
   else
     echo "Итого проблем: $total_issues"
     [[ $pending_count -gt 0 ]] && echo "  • $pending_count pending updates"
-    [[ $readme_count -gt 0 ]] && echo "  • $readme_count Документы в коде"
+    [[ $readme_count -gt 0 ]] && echo "  • $readme_count документы в коде"
+    [[ $spec_issues -gt 0 ]] && echo "  • $spec_issues планы без спецификаций"
   fi
   
   echo ""

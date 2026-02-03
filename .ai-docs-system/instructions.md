@@ -67,6 +67,27 @@
 
 При обновлении документа — обнови `Last verified` на текущие дату и время.
 
+### Связь Plan ↔ Execution Spec
+
+Планы (`docs/plans/`) и спецификации (`docs/spec/`) должны быть связаны.
+
+**При изменении файла плана (`docs/plans/*.md`):**
+
+1. **Найди строку** `Execution spec:` в теле документа
+2. **Если найдена** → проверь что связанный spec-файл существует и актуален
+3. **Если не найдена** → предложи добавить ссылку на спецификацию:
+   ```
+   Execution spec: docs/spec/<имя>.md
+   ```
+4. **Если spec-файл не существует** → предложи создать по шаблону из `docs/spec/README.md`
+
+**Формат ссылки (в теле документа, НЕ в метаданных):**
+```
+Execution spec: docs/spec/phase-1-mvp.md
+```
+
+**Примечание:** ссылка на spec — это **обычная строка в теле**, не поле метаданных (whitelist не затрагивается).
+
 ---
 
 ## Architecture Decision Records (ADR)
@@ -214,6 +235,7 @@ docs/adr/NNNN-название-решения.md
 | Схема данных, типы | `docs/architecture/` | `src/**/ARCHITECTURE.md` |
 | API документация | `docs/architecture/` | `src/**/API.md` |
 | Инструкции по деплою | `docs/infrastructure/` | корень проекта |
+| Исполнимые спецификации | `docs/spec/` | `docs/plans/` (планы — отдельно) |
 | История изменений | `docs/README.md` или ADR | отдельные CHANGELOG файлы |
 
 ### README.md в папках кода
@@ -231,7 +253,7 @@ docs/adr/NNNN-название-решения.md
 
 **Запрещено создавать без явного подтверждения:**
 
-- ❌ Новые папки в `docs/` (кроме существующих: features, architecture, infrastructure, adr, plans, archive)
+- ❌ Новые папки в `docs/` (кроме существующих: features, architecture, infrastructure, adr, plans, spec, archive)
 - ❌ Новые типы документов (CHANGELOG, UPDATES, DECISIONS, NOTES)
 - ❌ Файлы с датами в названии (`*_2026-01-21.md`, `*_v2.md`)
 - ❌ Дублирующие документы (если уже есть похожий — обнови его)

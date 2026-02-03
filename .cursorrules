@@ -1,5 +1,5 @@
 # BEGIN ai-docs-system
-# AI Docs System v2.4.4 — https://github.com/Pixasso/ai-docs-system
+# AI Docs System v2.5.0 — https://github.com/Pixasso/ai-docs-system
 # НЕ редактируйте этот блок. Запустите install.sh update для обновления.
 
 Прочитай и следуй инструкциям из `.ai-docs-system/instructions.md`
@@ -12,6 +12,7 @@
 3. Напомни: "📝 Изменения записаны. 💡 Запусти '==' для обновления docs"
 
 # END ai-docs-system
+
 
 
 

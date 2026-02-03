@@ -8,6 +8,7 @@
 | Схема данных, типы | `docs/architecture/` | `src/**/ARCHITECTURE.md` |
 | API документация | `docs/architecture/` | `src/**/API.md` |
 | Инструкции по деплою | `docs/infrastructure/` | корень проекта |
+| Исполнимые спецификации | `docs/spec/` | `docs/plans/` (планы — отдельно) |
 | История изменений | `docs/README.md` или ADR | отдельные CHANGELOG файлы |
 
 ### README.md в папках кода
@@ -25,7 +26,7 @@
 
 **Запрещено создавать без явного подтверждения:**
 
-- ❌ Новые папки в `docs/` (кроме существующих: features, architecture, infrastructure, adr, plans, archive)
+- ❌ Новые папки в `docs/` (кроме существующих: features, architecture, infrastructure, adr, plans, spec, archive)
 - ❌ Новые типы документов (CHANGELOG, UPDATES, DECISIONS, NOTES)
 - ❌ Файлы с датами в названии (`*_2026-01-21.md`, `*_v2.md`)
 - ❌ Дублирующие документы (если уже есть похожий — обнови его)

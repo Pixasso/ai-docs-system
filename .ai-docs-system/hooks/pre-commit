@@ -278,5 +278,59 @@ if [[ -n "$changed_code" && -z "$changed_docs" ]]; then
   echo ""
 fi
 
+# ─── Проверка Plan ↔ Spec для изменённых планов ─────────────────────────────────
+# Если изменён файл в docs/plans/, проверяем наличие Execution spec
+changed_plans=()
+while IFS= read -r -d '' file; do
+  if [[ "$file" == docs/plans/*.md && "$file" != "docs/plans/README.md" ]]; then
+    changed_plans+=("$file")
+  fi
+done < <(git diff --cached --name-only -z --diff-filter=ACMR 2>/dev/null)
+
+if [[ ${#changed_plans[@]} -gt 0 ]]; then
+  spec_warnings=0
+  for plan_file in "${changed_plans[@]}"; do
+    if [[ -f "$plan_file" ]]; then
+      spec_line=$(grep -E "^Execution spec:" "$plan_file" 2>/dev/null | head -1)
+      
+      if [[ -z "$spec_line" ]]; then
+        if [[ $spec_warnings -eq 0 ]]; then
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📋 Plan ↔ Spec"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+        fi
+        echo "  ⚠ $plan_file"
+        echo "     → Нет ссылки на спецификацию"
+        echo "     💡 Добавь: Execution spec: docs/spec/<имя>.md"
+        echo ""
+        ((spec_warnings++))
+      else
+        spec_path=$(echo "$spec_line" | sed 's/^Execution spec:[[:space:]]*//')
+        if [[ ! -f "$spec_path" ]]; then
+          if [[ $spec_warnings -eq 0 ]]; then
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📋 Plan ↔ Spec"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+          fi
+          echo "  ⚠ $plan_file"
+          echo "     → Spec не найден: $spec_path"
+          echo "     💡 Создай файл или исправь путь"
+          echo ""
+          ((spec_warnings++))
+        fi
+      fi
+    fi
+  done
+  
+  if [[ $spec_warnings -gt 0 ]]; then
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+  fi
+fi
+
 # Никогда не блокируем коммит
 exit 0

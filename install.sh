@@ -569,10 +569,10 @@ audit_project() {
   
   if [[ $queue0_count -gt 0 ]]; then
     echo "  ⏳ $queue0_count .queue0 файлов (fallback)"
-    ((pending_count += queue0_count))
+    pending_count=$((pending_count + queue0_count))
   fi
   
-  ((total_issues += pending_count))
+  total_issues=$((total_issues + pending_count))
   
   # ─── 2. Документы в коде ───────────────────────────────────────────────────────
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -721,6 +721,12 @@ audit_project() {
     [[ $pending_count -gt 0 ]] && echo "  • $pending_count pending updates"
     [[ $readme_count -gt 0 ]] && echo "  • $readme_count документы в коде"
     [[ $spec_issues -gt 0 ]] && echo "  • $spec_issues планы без спецификаций"
+    
+    # Подсказка для обработки очереди
+    if [[ $pending_count -gt 0 ]]; then
+      echo ""
+      echo "💡 Для обработки pending updates запусти в Cursor Agent: =="
+    fi
   fi
   
   echo ""
@@ -1044,6 +1050,13 @@ if [[ "$MODE" == "install" ]]; then
     if [[ ! -d "$DOCS_DST" ]] || [[ -z "$(ls -A "$DOCS_DST" 2>/dev/null)" ]]; then
       mkdir -p "$DOCS_DST"
       cp -R "$DOCS_SRC/"* "$DOCS_DST/" 2>/dev/null || true
+      
+      # Автозамена плейсхолдеров дат в шаблонах
+      current_date=$(date +%Y-%m-%d 2>/dev/null || date "+%Y-%m-%d")
+      find "$DOCS_DST" -name "*.md" -type f -exec sed -i.bak "s/YYYY-MM-DD/$current_date/g" {} \; 2>/dev/null || \
+        find "$DOCS_DST" -name "*.md" -type f -exec sed -i '' "s/YYYY-MM-DD/$current_date/g" {} \; 2>/dev/null || true
+      find "$DOCS_DST" -name "*.md.bak" -type f -delete 2>/dev/null || true
+      
       log_info "Структура docs/ создана из шаблона"
     else
       log_warn "docs/ уже существует, пропускаем"

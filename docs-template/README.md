@@ -35,8 +35,8 @@
 
 | Задача | Документ |
 |--------|----------|
-| Развёртывание | [infrastructure/DEPLOY.md](./infrastructure/DEPLOY.md) |
-| Архитектура | [architecture/OVERVIEW.md](./architecture/OVERVIEW.md) |
+| Развёртывание | [/docs/infrastructure/DEPLOY.md](/docs/infrastructure/DEPLOY.md) |
+| Архитектура | [/docs/architecture/OVERVIEW.md](/docs/architecture/OVERVIEW.md) |
 
 ---
 

@@ -1,0 +1,28 @@
+# Не включать в npm пакет
+node_modules/
+.git/
+.cursor/
+.DS_Store
+*.log
+
+# Тестовые файлы
+test/
+tests/
+*.test.js
+
+# CI/CD
+.github/workflows/
+.gitlab-ci.yml
+
+# Временные файлы
+*.tmp
+*.swp
+*~
+
+# IDE
+.vscode/
+.idea/
+
+# Не нужные для npm
+docs/
+examples/

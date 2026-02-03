@@ -1,0 +1,46 @@
+{
+  "name": "@pixasso/ai-docs-system",
+  "version": "2.4.4",
+  "description": "Универсальная модульная система автоматизации документации для проектов с AI-ассистентами",
+  "main": "bin/cli.js",
+  "bin": {
+    "ai-docs": "bin/cli.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "documentation",
+    "ai",
+    "cursor",
+    "copilot",
+    "claude",
+    "automation",
+    "git-hooks",
+    "pre-commit"
+  ],
+  "author": "Pixasso",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Pixasso/ai-docs-system.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Pixasso/ai-docs-system/issues"
+  },
+  "homepage": "https://github.com/Pixasso/ai-docs-system#readme",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "files": [
+    "bin/",
+    "install.sh",
+    "install.ps1",
+    ".ai-docs-system/",
+    "docs-template/",
+    "githooks/",
+    ".githooks/",
+    "README.md",
+    "LICENSE"
+  ]
+}

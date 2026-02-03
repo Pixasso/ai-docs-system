@@ -12,7 +12,25 @@
 
 ## Установка
 
-### macOS / Linux
+### Через npm (рекомендуется)
+
+```bash
+# Установить в текущий проект
+npx @pixasso/ai-docs-system install .
+
+# Или в конкретный проект
+npx @pixasso/ai-docs-system install /path/to/your/project
+
+# Обновить систему
+npx @pixasso/ai-docs-system update .
+
+# Проверить здоровье документации
+npx @pixasso/ai-docs-system audit .
+```
+
+### Через bash (альтернатива)
+
+#### macOS / Linux
 
 ```bash
 # 1. Клонируй модуль
@@ -26,7 +44,7 @@ cd ai-docs-system
 ./install.sh .
 ```
 
-### Windows (PowerShell)
+#### Windows (PowerShell)
 
 ```powershell
 # 1. Клонируй модуль
@@ -42,7 +60,13 @@ cd ai-docs-system
 
 ## Обновление
 
-### Способ 1: Прямо из проекта (⭐ рекомендуется, v2.2+)
+### Способ 1: Через npm (⭐ рекомендуется)
+
+```bash
+npx @pixasso/ai-docs-system update .
+```
+
+### Способ 2: Прямо из проекта (v2.2+)
 
 ```bash
 cd /path/to/your-project
@@ -51,7 +75,7 @@ cd /path/to/your-project
 
 Скрипт автоматически скачает последнюю версию и обновит систему.
 
-### Способ 2: Из репозитория ai-docs-system
+### Способ 3: Из репозитория ai-docs-system
 
 ```bash
 # macOS / Linux
